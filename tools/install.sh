@@ -222,7 +222,7 @@ collect_ingress() {
 
 collect_tunables() {
   hdr "Tunables (defaults are fine for most installs)"
-  prompt_value ANTHROPIC_CAP_USD_PER_DAY "Anthropic spend cap per day, USD" "${ANTHROPIC_CAP_USD_PER_DAY:-20}"
+  prompt_value ANTHROPIC_CAP_USD_PER_DAY "Anthropic spend cap per day, USD" "${ANTHROPIC_CAP_USD_PER_DAY:-30}"
   prompt_value NC_AI_ADOPTION_RATE "NC AI adoption rate (0-1)" "${NC_AI_ADOPTION_RATE:-0.25}"
   prompt_value NC_TOTAL_USERS "NC total users" "${NC_TOTAL_USERS:-200}"
   prompt_value SB_TOTAL_USERS "SB total users" "${SB_TOTAL_USERS:-30}"
@@ -381,7 +381,7 @@ global:
     url: "${GRAFANA_URL:-}"
   caps:
     anthropic:
-      usdPerDay: ${ANTHROPIC_CAP_USD_PER_DAY:-20}
+      usdPerDay: ${ANTHROPIC_CAP_USD_PER_DAY:-30}
   # Only emit a modelWeights override when the user actually set an env var —
   # otherwise the chart's helm/values.yaml default (a weighted Claude pool)
   # would get clobbered with "" and the gateway would fall back to a single

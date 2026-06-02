@@ -42,7 +42,7 @@ global:
   # Per-provider caps (drive the gateway /open endpoint)
   caps:
     anthropic:
-      usdPerDay: 20
+      usdPerDay: 30
     openai:
       usdPerDay: 5
     gemini:
