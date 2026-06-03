@@ -44,6 +44,7 @@ import os
 import signal
 import sys
 import tempfile
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -255,12 +256,20 @@ class Scenario:
 class K6Supervisor:
     """Manages one K6 subprocess per Scenario."""
 
+    # Backoff schedule for restart-on-crash. Reset to 0 once a scenario
+    # accumulates this much uptime in a single run (a healthy lifetime).
+    _HEALTHY_UPTIME_SEC = 60.0
+    _MAX_BACKOFF_SEC = 60.0
+
     def __init__(self, settings: Settings):
         self.settings = settings
         self._procs: dict[str, asyncio.subprocess.Process] = {}
         self._users_files: dict[str, str] = {}
         self._scenarios: dict[str, Scenario] = {}
         self._lock = asyncio.Lock()
+        self._shutdown: bool = False
+        self._start_times: dict[str, float] = {}
+        self._restart_failures: dict[str, int] = {}
 
     def register(self, scenario: Scenario) -> None:
         self._scenarios[scenario.name] = scenario
@@ -325,6 +334,7 @@ class K6Supervisor:
                 stderr=asyncio.subprocess.STDOUT,
             )
             self._procs[scenario_name] = proc
+            self._start_times[scenario_name] = time.monotonic()
             _set_k6_running(scenario_name, 1)
             m_k6_restarts.labels(scenario=scenario_name).inc()
 
@@ -356,6 +366,7 @@ class K6Supervisor:
             await proc.wait()
 
     async def stop_all(self) -> None:
+        self._shutdown = True
         await asyncio.gather(
             *(self.stop(name, reason="shutdown") for name in list(self._procs.keys())),
             return_exceptions=True,
@@ -377,8 +388,9 @@ class K6Supervisor:
                 sys.stdout.flush()
         finally:
             rc = await proc.wait()
+            uptime = time.monotonic() - self._start_times.get(scenario_name, time.monotonic())
             _set_k6_running(scenario_name, 0)
-            log.info("k6 scenario=%s exited rc=%d", scenario_name, rc)
+            log.info("k6 scenario=%s exited rc=%d uptime=%.1fs", scenario_name, rc, uptime)
             # Clean up users file
             path = self._users_files.pop(scenario_name, None)
             if path and os.path.exists(path):
@@ -386,6 +398,25 @@ class K6Supervisor:
                     os.unlink(path)
                 except OSError:
                     pass
+
+        # Auto-restart unless the supervisor is shutting down.
+        if self._shutdown:
+            return
+        if uptime >= self._HEALTHY_UPTIME_SEC:
+            self._restart_failures[scenario_name] = 0
+        failures = self._restart_failures.get(scenario_name, 0)
+        delay = min(2.0 ** failures, self._MAX_BACKOFF_SEC)
+        self._restart_failures[scenario_name] = failures + 1
+        log.warning(
+            "k6 scenario=%s exited unexpectedly; restarting in %.1fs (consecutive failures=%d)",
+            scenario_name, delay, failures + 1,
+        )
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return
+        if not self._shutdown:
+            await self.start(scenario_name)
 
 
 # ── Gateway poller ────────────────────────────────────────────────────────────
