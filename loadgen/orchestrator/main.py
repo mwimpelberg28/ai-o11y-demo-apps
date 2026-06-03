@@ -6,22 +6,19 @@ orchestrator's job is:
 
 1. Read `config/users.yaml` at startup — the pool of synthetic users with
    stable cohort assignments (regenerate via `tools/regenerate-users.py`).
-2. Poll the LLM gateway's `/open` endpoint every few seconds. Watch
-   `providers.anthropic` specifically (NOT `any_open`) — Claude is the
-   rate-defining provider per docs/LOADGEN.md.
-3. Spawn K6 subprocesses for each scenario (one per NC cohort + one SB).
+2. Spawn K6 subprocesses for each scenario (one per NC cohort + one SB).
    Each K6 process is fed the relevant slice of the user pool as a JSON
-   file via `--env USERS_FILE=/path`.
-4. When Claude transitions closed: stop the AI-cohort K6 processes
-   (gift-finder, chatbot, both) and the SB K6 process. The non-AI NC K6
-   stays up — those 150 users keep shopping. In-flight K6 iterations are
-   allowed to finish their current iteration (gentler) by sending SIGTERM
-   and letting K6's own shutdown drain.
-5. When Claude reopens: spawn fresh K6 processes for the AI scenarios.
-6. Expose `/health` (k8s liveness). Internal accounting metrics
-   (loadgen_gateway_anthropic_open, loadgen_k6_processes_running, etc.)
-   ride the OTLP push pipeline that opentelemetry-instrument sets up —
-   LLM/Sigil metrics still come from gateway/specialists.
+   file via `--env USERS_FILE=/path`. All scenarios run 24/7 regardless
+   of provider cap state — the gateway routes individual requests to
+   Ollama when Anthropic is capped (see `gateway/app/router.py`), so
+   synthetic AI traffic stays steady on whichever provider is open.
+3. Poll the LLM gateway's `/open` endpoint every few seconds and log
+   Anthropic transitions for observability. The poller no longer tears
+   down scenarios — interactive (real user) traffic always gets Claude
+   ungated, and synthetic traffic rides the gateway's provider routing.
+4. Expose `/health` (k8s liveness). Counter metrics ride the OTLP push
+   pipeline that opentelemetry-instrument sets up — LLM/Sigil metrics
+   still come from gateway/specialists.
 
 Env vars (all documented in docs/LOADGEN.md):
     NC_TOTAL_USERS               (informational; truth comes from users.yaml)
@@ -208,7 +205,7 @@ _c_k6_restarts = _meter.create_counter(
 )
 _c_k6_terminations = _meter.create_counter(
     "loadgen_k6_terminations_total",
-    description="Number of times a K6 scenario was terminated due to gateway close.",
+    description="Number of times a K6 scenario was terminated (shutdown or graceful stop).",
 )
 
 
@@ -249,14 +246,9 @@ m_k6_terminations = _CounterShim(_c_k6_terminations, ("scenario",))
 class Scenario:
     name: str
     script_filename: str
-    # Whether this scenario requires the Anthropic gateway to be open.
-    needs_anthropic: bool
-    # Per-scenario base URL passed to K6.
     base_url_env: str
     base_url: str
-    # Users JSON path for this scenario (regenerated on each start).
     users_payload: list[dict[str, Any]]
-    # Sessions/hr target for this scenario (used to pace K6).
     sessions_per_hour: int
 
 
@@ -413,8 +405,8 @@ class GatewayPoller:
         # don't want to silently freeze on misconfiguration.
         return self._anthropic_open is not False
 
-    async def run(self, on_change) -> None:
-        """Background loop. Calls `on_change(open: bool)` only on transition."""
+    async def run(self) -> None:
+        """Background loop. Logs Anthropic open/close transitions for visibility."""
         url = f"{self.settings.gateway_url}/open"
         log.info("polling gateway at %s every %.1fs", url, self.settings.poll_interval_sec)
 
@@ -426,7 +418,6 @@ class GatewayPoller:
                     body = resp.json()
                     providers = body.get("providers", {}) if isinstance(body, dict) else {}
                     ant = providers.get("anthropic") or {}
-                    # Treat missing provider entry as closed (defensive).
                     new_open = bool(ant.get("open", False)) if ant else False
                     _set_anthropic_open(1 if new_open else 0)
                     if new_open != self._anthropic_open:
@@ -437,10 +428,6 @@ class GatewayPoller:
                             ant.get("reason"),
                         )
                         self._anthropic_open = new_open
-                        try:
-                            await on_change(new_open)
-                        except Exception:
-                            log.exception("on_change handler failed")
                 except Exception as e:
                     m_gateway_poll_failures.inc()
                     log.warning("gateway poll failed: %s", e)
@@ -463,8 +450,6 @@ SC_NC_CHAT = "neoncart-chatbot"
 SC_NC_BOTH = "neoncart-both"
 SC_SB = "supportbot"
 
-AI_SCENARIOS = (SC_NC_GIFT, SC_NC_CHAT, SC_NC_BOTH, SC_SB)
-
 
 class Orchestrator:
     def __init__(self, settings: Settings, pool: UserPool):
@@ -476,31 +461,25 @@ class Orchestrator:
         self._register_scenarios()
 
     def _register_scenarios(self) -> None:
-        # Non-AI users — always running regardless of gateway state.
         self.supervisor.register(Scenario(
             name=SC_NC_NON_AI,
             script_filename="neoncart-non-ai.js",
-            needs_anthropic=False,
             base_url_env="NC_BASE_URL",
             base_url=self.settings.nc_base_url,
             users_payload=self.pool.nc_non_ai,
             sessions_per_hour=self._scale(self.settings.nc_sessions_per_hour, 0.75),
         ))
-        # Gift-finder cohort
         self.supervisor.register(Scenario(
             name=SC_NC_GIFT,
             script_filename="neoncart-gift-finder.js",
-            needs_anthropic=True,
             base_url_env="NC_BASE_URL",
             base_url=self.settings.nc_base_url,
             users_payload=self.pool.nc_gift_finder,
             sessions_per_hour=self._scale(self.settings.nc_sessions_per_hour, 0.15),
         ))
-        # Chatbot cohort
         self.supervisor.register(Scenario(
             name=SC_NC_CHAT,
             script_filename="neoncart-chatbot.js",
-            needs_anthropic=True,
             base_url_env="NC_BASE_URL",
             base_url=self.settings.nc_base_url,
             users_payload=self.pool.nc_chatbot,
@@ -511,17 +490,14 @@ class Orchestrator:
         self.supervisor.register(Scenario(
             name=SC_NC_BOTH,
             script_filename="neoncart-chatbot.js",
-            needs_anthropic=True,
             base_url_env="NC_BASE_URL",
             base_url=self.settings.nc_base_url,
             users_payload=self.pool.nc_both,
             sessions_per_hour=self._scale(self.settings.nc_sessions_per_hour, 0.025),
         ))
-        # SupportBot — 100% AI, all stops when Claude closes.
         self.supervisor.register(Scenario(
             name=SC_SB,
             script_filename="supportbot.js",
-            needs_anthropic=True,
             base_url_env="SB_BASE_URL",
             base_url=self.settings.sb_base_url,
             users_payload=self.pool.sb,
@@ -534,16 +510,12 @@ class Orchestrator:
         return max(1, int(round(rate * fraction)))
 
     async def start(self) -> None:
-        # Always start the non-AI scenario immediately — it doesn't care
-        # about the gateway.
-        await self.supervisor.start(SC_NC_NON_AI)
-        # AI scenarios: start them now too, but the poller will tear them
-        # down if the gateway reports Anthropic closed.
-        for name in AI_SCENARIOS:
+        # All scenarios run 24/7 — the gateway routes individual requests
+        # to whichever provider is open, so loadgen doesn't need to gate.
+        for name in self.supervisor._scenarios:
             await self.supervisor.start(name)
 
-        # Background poller (kicks transitions, not initial state).
-        self._poll_task = asyncio.create_task(self.poller.run(self._on_anthropic_state))
+        self._poll_task = asyncio.create_task(self.poller.run())
 
     async def stop(self) -> None:
         if self._poll_task:
@@ -553,19 +525,6 @@ class Orchestrator:
             except asyncio.TimeoutError:
                 self._poll_task.cancel()
         await self.supervisor.stop_all()
-
-    async def _on_anthropic_state(self, open_: bool) -> None:
-        """Gateway state transition handler."""
-        if open_:
-            log.info("anthropic OPEN — (re)starting AI scenarios")
-            for name in AI_SCENARIOS:
-                await self.supervisor.start(name)
-        else:
-            log.info("anthropic CLOSED — stopping AI scenarios (non-AI keeps running)")
-            await asyncio.gather(
-                *(self.supervisor.stop(name, reason="anthropic_closed") for name in AI_SCENARIOS),
-                return_exceptions=True,
-            )
 
     def status(self) -> dict[str, Any]:
         return {

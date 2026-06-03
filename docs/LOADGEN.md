@@ -139,14 +139,11 @@ This is why real-human browser use of the websites never gets throttled — huma
 
 ## Loadgen behavior when LLM Gateway throttles
 
-Loadgen polls `/open` every 5s. **Watches `providers.anthropic` specifically**, not `any_open`. Claude is the rate-defining provider.
+Loadgen polls `/open` every 5s and logs Anthropic open/close transitions for observability, but **does not gate K6 scenarios on cap state**. All scenarios run 24/7.
 
-When Claude closes:
-- **SB:** stop spawning new VUs entirely. Active SB users drops on dashboard (likely to 0 within a minute).
-- **NC:** stop spawning new AI-cohort VUs (the 50). The 150 non-AI users keep shopping. NC active users drops to 150.
-- In-flight VUs: finish current iteration (gentler) OR kill immediately (more visible). **Pending decision.**
+When Claude closes (cap tripped), individual synthetic requests still flow through the gateway, which falls back to Ollama for synthetic traffic (see `gateway/app/router.py:104-106` — open candidates are re-normalized, so Ollama gets 100% when it's the only one open). The dashboard shows traffic shifting from Anthropic to Ollama rather than disappearing.
 
-When Claude reopens: resume spawning normally.
+Interactive (real-user) traffic is unaffected — it always goes to Claude ungated regardless of cap state.
 
 ## Configurables (env vars)
 
