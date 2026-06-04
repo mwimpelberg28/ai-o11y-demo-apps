@@ -168,40 +168,66 @@ if _MODEL_WEIGHTS:
         ", ".join(f"{m}={w:.0%}" for m, w in _MODEL_WEIGHTS),
     )
 
+# When > 0, each user_id gets a deterministic K-model "personal pool" sampled
+# from the weight CDF at K evenly-spaced user-deterministic offsets. The call's
+# conversation_id picks uniformly across the K lanes — which preserves the
+# company-level weight distribution exactly (each lane is uniform over [0,1)
+# in expectation, so P(model M) = w_M per lane). Duplicate lanes are allowed
+# (skewed weights can put two lanes in the same model's CDF slice), which
+# means a user's effective pool can be smaller than K.
+_USER_POOL_SIZE = int(os.getenv("ANTHROPIC_USER_POOL_SIZE", "0"))
+if _USER_POOL_SIZE > 0 and _MODEL_WEIGHTS:
+    log.info("anthropic provider: per-user pool size K=%d", _USER_POOL_SIZE)
+
+
+def _walk_cdf(position: float) -> str:
+    """Return the model whose CDF slice contains `position` in [0, 1)."""
+    cumulative = 0.0
+    for model, w in _MODEL_WEIGHTS:
+        cumulative += w
+        if position < cumulative:
+            return model
+    return _MODEL_WEIGHTS[-1][0]
+
 
 def _pick_model(req: ProviderRequest) -> str:
-    """Pick a model. Priority: explicit req.model -> weighted-sticky -> default.
+    """Pick a model. Priority: explicit req.model -> user-pool / weighted-sticky -> default.
 
-    Sticky by session_id so a conversation stays on the same model — better
-    user experience and cleaner per-model dashboard slices.
+    When ANTHROPIC_USER_POOL_SIZE > 0 and req.user_id is set, the user gets a
+    K-model personal pool and conversations rotate uniformly among those K
+    lanes. Otherwise we fall back to plain sticky-per-conversation weighted
+    selection.
     """
     if req.model:
         return req.model
     if not _MODEL_WEIGHTS:
         return DEFAULT_MODEL
-    # Sticky-per-session: deterministic (session_id, conversation_id) -> model.
+
+    # User-pool stratification: K offsets on the weight CDF picked from a
+    # user-deterministic origin, lane chosen by conversation hash. Preserves
+    # company-level distribution exactly while constraining each user to <= K
+    # distinct models.
+    if _USER_POOL_SIZE > 0 and req.user_id:
+        user_hash = int(hashlib.md5(req.user_id.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
+        conv_key = (req.session_id or "") + "|" + (req.conversation_id or "")
+        if conv_key.strip("|"):
+            lane = int(hashlib.md5(conv_key.encode()).hexdigest()[:8], 16) % _USER_POOL_SIZE
+        else:
+            lane = random.randrange(_USER_POOL_SIZE)
+        position = (user_hash + lane / _USER_POOL_SIZE) % 1.0
+        return _walk_cdf(position)
+
+    # Sticky-per-conversation: deterministic (session_id, conversation_id) -> model.
     # The `|model` salt decorrelates this hash from the router's provider-pick
     # hash on the same key — without it, anthropic's PROVIDER_WEIGHTS slice
     # nests inside haiku's MODEL_WEIGHTS slice and Sonnet/Opus become
     # unreachable from synthetic traffic.
     sticky_key = (req.session_id or "") + "|" + (req.conversation_id or "") + "|model"
     if sticky_key.strip("|"):
-        # Map the key to a [0,1) value and walk the weight CDF
         h = int(hashlib.md5(sticky_key.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
-        cumulative = 0.0
-        for model, w in _MODEL_WEIGHTS:
-            cumulative += w
-            if h < cumulative:
-                return model
-        return _MODEL_WEIGHTS[-1][0]
+        return _walk_cdf(h)
     # No session info — plain weighted random
-    r = random.random()
-    cumulative = 0.0
-    for model, w in _MODEL_WEIGHTS:
-        cumulative += w
-        if r < cumulative:
-            return model
-    return _MODEL_WEIGHTS[-1][0]
+    return _walk_cdf(random.random())
 
 
 def _to_anthropic_messages(messages: list[dict]) -> tuple[str | None, list[dict]]:

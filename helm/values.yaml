@@ -121,6 +121,18 @@ global:
     gemini: ""
     ollama: "qwen2.5:3b:25,qwen2.5:7b:30,llama3.1:8b:25,qwen2.5:14b:20"
 
+  # Per-user model pool size (K). When > 0, each `user_id` gets a deterministic
+  # K-model "personal pool" sampled from the weight CDF at K evenly-spaced
+  # user-deterministic offsets. The call's `conversation_id` picks uniformly
+  # across the K lanes, which preserves the company-level weight distribution
+  # exactly while constraining each user to <= K distinct models. With skewed
+  # weights, two lanes can land in the same model's CDF slice — that user's
+  # effective pool is < K (perfectly fine; smaller pool just sticks harder).
+  # K=0 disables the feature (original sticky-per-conversation behavior).
+  userPoolSize:
+    anthropic: 0
+    ollama: 0
+
   # Cross-provider weighting for synthetic loadgen traffic. Tilts toward
   # Ollama by default (it's ~200x cheaper than Anthropic on the dollar metric)
   # so the demo doesn't burn cloud credits during long-running sessions.

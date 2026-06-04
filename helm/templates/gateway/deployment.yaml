@@ -78,6 +78,13 @@ spec:
               value: {{ .Values.global.modelWeights.gemini | default "" | quote }}
             - name: OLLAMA_MODEL_WEIGHTS
               value: {{ .Values.global.modelWeights.ollama | default "" | quote }}
+            # Optional per-user model pool size (K). When > 0, each user_id gets
+            # a deterministic K-model personal pool — preserves company-level
+            # weight distribution while constraining each user to <= K models.
+            - name: ANTHROPIC_USER_POOL_SIZE
+              value: {{ .Values.global.userPoolSize.anthropic | default 0 | quote }}
+            - name: OLLAMA_USER_POOL_SIZE
+              value: {{ .Values.global.userPoolSize.ollama | default 0 | quote }}
             # Optional cross-provider weighting (anthropic vs ollama etc.).
             # Empty = uniform across configured+open providers.
             # Example: "anthropic:1,ollama:2" → ollama ~67%, anthropic ~33%.

@@ -138,28 +138,42 @@ if _MODEL_WEIGHTS:
         ", ".join(f"{m}={w:.0%}" for m, w in _MODEL_WEIGHTS),
     )
 
+# See anthropic.py for the full explanation of user-pool stratification.
+_USER_POOL_SIZE = int(os.getenv("OLLAMA_USER_POOL_SIZE", "0"))
+if _USER_POOL_SIZE > 0 and _MODEL_WEIGHTS:
+    log.info("ollama provider: per-user pool size K=%d", _USER_POOL_SIZE)
+
+
+def _walk_cdf(position: float) -> str:
+    cumulative = 0.0
+    for model, w in _MODEL_WEIGHTS:
+        cumulative += w
+        if position < cumulative:
+            return model
+    return _MODEL_WEIGHTS[-1][0]
+
 
 def _pick_model(req: ProviderRequest) -> str:
     if req.model:
         return req.model
     if not _MODEL_WEIGHTS:
         return DEFAULT_MODEL
+
+    if _USER_POOL_SIZE > 0 and req.user_id:
+        user_hash = int(hashlib.md5(req.user_id.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
+        conv_key = (req.session_id or "") + "|" + (req.conversation_id or "")
+        if conv_key.strip("|"):
+            lane = int(hashlib.md5(conv_key.encode()).hexdigest()[:8], 16) % _USER_POOL_SIZE
+        else:
+            lane = random.randrange(_USER_POOL_SIZE)
+        position = (user_hash + lane / _USER_POOL_SIZE) % 1.0
+        return _walk_cdf(position)
+
     sticky_key = (req.session_id or "") + "|" + (req.conversation_id or "") + "|model"
     if sticky_key.strip("|"):
         h = int(hashlib.md5(sticky_key.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
-        cumulative = 0.0
-        for model, w in _MODEL_WEIGHTS:
-            cumulative += w
-            if h < cumulative:
-                return model
-        return _MODEL_WEIGHTS[-1][0]
-    r = random.random()
-    cumulative = 0.0
-    for model, w in _MODEL_WEIGHTS:
-        cumulative += w
-        if r < cumulative:
-            return model
-    return _MODEL_WEIGHTS[-1][0]
+        return _walk_cdf(h)
+    return _walk_cdf(random.random())
 DEFAULT_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
 DEFAULT_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
 DEFAULT_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "120"))
