@@ -679,12 +679,12 @@
                         "Time 2": true,
                         "Time 3": true,
                         "Time 4": true,
-                        "user_id 2": true,
-                        "user_id 3": true,
-                        "user_id 4": true,
                         "conversation_id 2": true,
                         "conversation_id 3": true,
                         "conversation_id 4": true,
+                        "user_id 2": true,
+                        "user_id 3": true,
+                        "user_id 4": true,
                         "conversation_id 1": true
                       },
                       "indexByName": {
@@ -959,8 +959,8 @@
         "kind": "Panel",
         "spec": {
           "id": 7,
-          "title": "Worst employees by avg eval score (24h)",
-          "description": "Per-employee aggregate over the last 24h. Sessions = distinct conversation_ids the employee opened. Avg Eval Score is the mean of all scored conversations for that user \u2014 lower = the AI was less valuable for what they were asking. Repeat offenders surface here even if no single conversation is huge.",
+          "title": "Worst employees by waste (24h)",
+          "description": "Per-employee aggregate over the last 24h. **$ Wasted = $ Cost \u00d7 (1 \u2212 Avg Eval Score / 100)** \u2014 the composite of spend \u00d7 inefficiency. An employee who spends $5 at a score of 100 wastes $0; one who spends $1 at a score of 0 wastes $1. Sessions = distinct conversation_ids the employee opened in the window.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -1065,6 +1065,26 @@
                     "refId": "score",
                     "hidden": false
                   }
+                },
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "prometheus",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "grafanacloud-prom"
+                      },
+                      "spec": {
+                        "expr": "sum by (user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\"}[24h])) * (1 - avg by (user_id) (conversation_eval_score{user_id=~\".+@acme.com\"}) / 100)",
+                        "format": "table",
+                        "instant": true
+                      }
+                    },
+                    "refId": "waste",
+                    "hidden": false
+                  }
                 }
               ],
               "transformations": [
@@ -1088,18 +1108,21 @@
                         "Time 2": true,
                         "Time 3": true,
                         "Time 4": true,
-                        "Time 5": true
+                        "Time 5": true,
+                        "Time 6": true
                       },
                       "indexByName": {
                         "user_id": 0,
-                        "Value #score": 1,
-                        "Value #sessions": 2,
-                        "Value #input": 3,
-                        "Value #output": 4,
-                        "Value #cost": 5
+                        "Value #waste": 1,
+                        "Value #score": 2,
+                        "Value #sessions": 3,
+                        "Value #input": 4,
+                        "Value #output": 5,
+                        "Value #cost": 6
                       },
                       "renameByName": {
                         "user_id": "User",
+                        "Value #waste": "Wasted $$",
                         "Value #score": "Avg Eval Score",
                         "Value #sessions": "Sessions",
                         "Value #input": "Input Tokens",
@@ -1117,8 +1140,8 @@
                       "fields": {},
                       "sort": [
                         {
-                          "desc": false,
-                          "field": "Avg Eval Score"
+                          "desc": true,
+                          "field": "Wasted $$"
                         }
                       ]
                     }
@@ -1139,7 +1162,7 @@
                 "sortBy": [
                   {
                     "desc": true,
-                    "displayName": "Avg Eval Score"
+                    "displayName": "Wasted $$"
                   }
                 ]
               },
@@ -1179,6 +1202,36 @@
                       {
                         "id": "custom.align",
                         "value": "left"
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "Wasted $$"
+                    },
+                    "properties": [
+                      {
+                        "id": "unit",
+                        "value": "currencyUSD"
+                      },
+                      {
+                        "id": "decimals",
+                        "value": 4
+                      },
+                      {
+                        "id": "custom.cellOptions",
+                        "value": {
+                          "mode": "gradient",
+                          "type": "gauge",
+                          "valueDisplayMode": "text"
+                        }
+                      },
+                      {
+                        "id": "color",
+                        "value": {
+                          "mode": "continuous-reds"
+                        }
                       }
                     ]
                   },

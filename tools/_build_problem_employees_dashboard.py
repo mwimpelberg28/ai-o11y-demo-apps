@@ -482,26 +482,35 @@ elements["panel-6"] = table_panel(
 # bubble to the top — they're the demo's "who's wasting the budget" story.
 elements["panel-7"] = table_panel(
     7,
-    "Worst employees by avg eval score (24h)",
-    "Per-employee aggregate over the last 24h. Sessions = distinct conversation_ids the employee opened. Avg Eval Score is the mean of all scored conversations for that user — lower = the AI was less valuable for what they were asking. Repeat offenders surface here even if no single conversation is huge.",
+    "Worst employees by waste (24h)",
+    "Per-employee aggregate over the last 24h. **$ Wasted = $ Cost × (1 − Avg Eval Score / 100)** — the composite of spend × inefficiency. An employee who spends $5 at a score of 100 wastes $0; one who spends $1 at a score of 0 wastes $1. Sessions = distinct conversation_ids the employee opened in the window.",
     queries=[
         ("sessions", f'count by (user_id) (count by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[24h])))'),
         ("input",    f'sum by (user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[24h]))'),
         ("output",   f'sum by (user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[24h]))'),
         ("cost",     f'sum by (user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[24h]))'),
         ("score",    f'avg by (user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}})'),
+        # Waste = cost * (1 - score/100). Both subexpressions have only the
+        # user_id label, so the implicit one-to-one vector match on user_id
+        # works directly. Users with cost but no eval score drop out — fine,
+        # they show as blank in this column.
+        ("waste",    (
+            f'sum by (user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[24h])) '
+            f'* (1 - avg by (user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}}) / 100)'
+        )),
     ],
     join_field="user_id",
     column_order=[
         ("user_id",         "User"),
+        ("Value #waste",    "Wasted $$"),
         ("Value #score",    "Avg Eval Score"),
         ("Value #sessions", "Sessions"),
         ("Value #input",    "Input Tokens"),
         ("Value #output",   "Output Tokens"),
         ("Value #cost",     "$ Cost (24h)"),
     ],
-    sort_by_display="Avg Eval Score",
-    sort_desc=False,  # ascending — lowest scores (worst AI use) at top
+    sort_by_display="Wasted $$",
+    sort_desc=True,  # most-wasteful first
 )
 
 
