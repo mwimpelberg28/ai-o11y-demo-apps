@@ -170,6 +170,7 @@ def table_panel(pid: int, title: str, description: str,
                 join_field: str,
                 column_order: list[tuple[str, str]],  # (raw_field, display_name)
                 sort_by_display: str,
+                sort_desc: bool = True,
                 hidden_columns: list[str] | None = None,
                 shared_label_fields: list[str] | None = None,
                 column_links: dict[str, list[dict]] | None = None) -> dict:
@@ -314,7 +315,7 @@ def table_panel(pid: int, title: str, description: str,
                             "spec": {
                                 "options": {
                                     "fields": {},
-                                    "sort": [{"desc": True, "field": sort_by_display}],
+                                    "sort": [{"desc": sort_desc, "field": sort_by_display}],
                                 },
                             },
                         },
@@ -437,16 +438,16 @@ elements["panel-5"] = timeseries_panel(
 # fall to the bottom of the cost-sorted table.
 elements["panel-6"] = table_panel(
     6,
-    "Top conversations by tokens (1h)",
-    "Top SupportBot conversations by output tokens in the last hour. Anomaly bursts (sess_anomrun_* / sess_anomglut_*) bubble to the top — token-glutton bursts dominate the output column, runaway-loop bursts dominate input. The Cost column reads $0 for Ollama (no per-token pricing configured) and real $$ for Anthropic chats. Click the Conversation cell to open it in AI o11y.",
+    "Top conversations by tokens (24h)",
+    "Top SupportBot conversations by output tokens in the last 24 hours. 24h window keeps bursts visible all day so the table is stable, not churning every minute as the 1h boundary slides. Anomaly bursts (sess_anomrun_* / sess_anomglut_*) bubble to the top — token-glutton bursts dominate the output column, runaway-loop bursts dominate input. The Cost column reads $0 for Ollama (no per-token pricing configured) and real $$ for Anthropic chats. Click the Conversation cell to open it in AI o11y.",
     queries=[
         # user_id + conversation_id are present on every query so they need
         # `shared_label_fields` handling to dedupe after joinByField.
         # cost + score queries do NOT carry conversation_id (those metrics lack
         # it), so dedupe drops the empty suffixed copies.
-        ("input",  f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[1h]))'),
-        ("output", f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[1h]))'),
-        ("cost",   f'sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[1h]))'),
+        ("input",  f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[24h]))'),
+        ("output", f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[24h]))'),
+        ("cost",   f'sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[24h]))'),
         # Eval score: instant gauge from the conversation-evaluator service.
         # Missing for un-scored sessions — they render with empty Score cell.
         ("score",  f'max by (session_id, user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}})'),
@@ -473,6 +474,34 @@ elements["panel-6"] = table_panel(
     sort_by_display="Output Tokens",
 )
 
+# Row 5 table — worst employees (aggregate of conversations by user_id)
+# Sorted by avg eval score ASC so the "least valuable AI use" employees
+# bubble to the top — they're the demo's "who's wasting the budget" story.
+elements["panel-7"] = table_panel(
+    7,
+    "Worst employees by avg eval score (24h)",
+    "Per-employee aggregate over the last 24h. Sessions = distinct conversation_ids the employee opened. Avg Eval Score is the mean of all scored conversations for that user — lower = the AI was less valuable for what they were asking. Repeat offenders surface here even if no single conversation is huge.",
+    queries=[
+        ("sessions", f'count by (user_id) (count by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[24h])))'),
+        ("input",    f'sum by (user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[24h]))'),
+        ("output",   f'sum by (user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[24h]))'),
+        ("cost",     f'sum by (user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[24h]))'),
+        ("score",    f'avg by (user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}})'),
+    ],
+    join_field="user_id",
+    column_order=[
+        ("user_id",         "User"),
+        ("Value #score",    "Avg Eval Score"),
+        ("Value #sessions", "Sessions"),
+        ("Value #input",    "Input Tokens"),
+        ("Value #output",   "Output Tokens"),
+        ("Value #cost",     "$ Cost (24h)"),
+    ],
+    sort_by_display="Avg Eval Score",
+    sort_desc=False,  # ascending — lowest scores (worst AI use) at top
+)
+
+
 # ── Build layout ──────────────────────────────────────────────────────────────
 
 layout = {
@@ -490,8 +519,11 @@ layout = {
             row("🔍 Provider routing — confirms Ollama pinning held", [
                 grid_item(0, 0, 24, 7, "panel-5"),
             ]),
-            row("🧾 Top problem conversations (1h)", [
+            row("🧾 Top problem conversations (24h)", [
                 grid_item(0, 0, 24, 12, "panel-6"),
+            ]),
+            row("🧑 Worst employees (24h)", [
+                grid_item(0, 0, 24, 10, "panel-7"),
             ]),
         ],
     },

@@ -570,8 +570,8 @@
         "kind": "Panel",
         "spec": {
           "id": 6,
-          "title": "Top conversations by tokens (1h)",
-          "description": "Top SupportBot conversations by output tokens in the last hour. Anomaly bursts (sess_anomrun_* / sess_anomglut_*) bubble to the top \u2014 token-glutton bursts dominate the output column, runaway-loop bursts dominate input. The Cost column reads $0 for Ollama (no per-token pricing configured) and real $$ for Anthropic chats. Click the Conversation cell to open it in AI o11y.",
+          "title": "Top conversations by tokens (24h)",
+          "description": "Top SupportBot conversations by output tokens in the last 24 hours. 24h window keeps bursts visible all day so the table is stable, not churning every minute as the 1h boundary slides. Anomaly bursts (sess_anomrun_* / sess_anomglut_*) bubble to the top \u2014 token-glutton bursts dominate the output column, runaway-loop bursts dominate input. The Cost column reads $0 for Ollama (no per-token pricing configured) and real $$ for Anthropic chats. Click the Conversation cell to open it in AI o11y.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -588,7 +588,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"input\",user_id=~\".+@acme.com\"}[1h]))",
+                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"input\",user_id=~\".+@acme.com\"}[24h]))",
                         "format": "table",
                         "instant": true
                       }
@@ -608,7 +608,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"output\",user_id=~\".+@acme.com\"}[1h]))",
+                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"output\",user_id=~\".+@acme.com\"}[24h]))",
                         "format": "table",
                         "instant": true
                       }
@@ -628,7 +628,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\"}[1h]))",
+                        "expr": "sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\"}[24h]))",
                         "format": "table",
                         "instant": true
                       }
@@ -954,6 +954,381 @@
             }
           }
         }
+      },
+      "panel-7": {
+        "kind": "Panel",
+        "spec": {
+          "id": 7,
+          "title": "Worst employees by avg eval score (24h)",
+          "description": "Per-employee aggregate over the last 24h. Sessions = distinct conversation_ids the employee opened. Avg Eval Score is the mean of all scored conversations for that user \u2014 lower = the AI was less valuable for what they were asking. Repeat offenders surface here even if no single conversation is huge.",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "prometheus",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "grafanacloud-prom"
+                      },
+                      "spec": {
+                        "expr": "count by (user_id) (count by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{gen_ai_token_type=\"output\",user_id=~\".+@acme.com\"}[24h])))",
+                        "format": "table",
+                        "instant": true
+                      }
+                    },
+                    "refId": "sessions",
+                    "hidden": false
+                  }
+                },
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "prometheus",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "grafanacloud-prom"
+                      },
+                      "spec": {
+                        "expr": "sum by (user_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"input\",user_id=~\".+@acme.com\"}[24h]))",
+                        "format": "table",
+                        "instant": true
+                      }
+                    },
+                    "refId": "input",
+                    "hidden": false
+                  }
+                },
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "prometheus",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "grafanacloud-prom"
+                      },
+                      "spec": {
+                        "expr": "sum by (user_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"output\",user_id=~\".+@acme.com\"}[24h]))",
+                        "format": "table",
+                        "instant": true
+                      }
+                    },
+                    "refId": "output",
+                    "hidden": false
+                  }
+                },
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "prometheus",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "grafanacloud-prom"
+                      },
+                      "spec": {
+                        "expr": "sum by (user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\"}[24h]))",
+                        "format": "table",
+                        "instant": true
+                      }
+                    },
+                    "refId": "cost",
+                    "hidden": false
+                  }
+                },
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "prometheus",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "grafanacloud-prom"
+                      },
+                      "spec": {
+                        "expr": "avg by (user_id) (conversation_eval_score{user_id=~\".+@acme.com\"})",
+                        "format": "table",
+                        "instant": true
+                      }
+                    },
+                    "refId": "score",
+                    "hidden": false
+                  }
+                }
+              ],
+              "transformations": [
+                {
+                  "kind": "Transformation",
+                  "group": "joinByField",
+                  "spec": {
+                    "options": {
+                      "byField": "user_id",
+                      "mode": "outer"
+                    }
+                  }
+                },
+                {
+                  "kind": "Transformation",
+                  "group": "organize",
+                  "spec": {
+                    "options": {
+                      "excludeByName": {
+                        "Time 1": true,
+                        "Time 2": true,
+                        "Time 3": true,
+                        "Time 4": true,
+                        "Time 5": true
+                      },
+                      "indexByName": {
+                        "user_id": 0,
+                        "Value #score": 1,
+                        "Value #sessions": 2,
+                        "Value #input": 3,
+                        "Value #output": 4,
+                        "Value #cost": 5
+                      },
+                      "renameByName": {
+                        "user_id": "User",
+                        "Value #score": "Avg Eval Score",
+                        "Value #sessions": "Sessions",
+                        "Value #input": "Input Tokens",
+                        "Value #output": "Output Tokens",
+                        "Value #cost": "$ Cost (24h)"
+                      }
+                    }
+                  }
+                },
+                {
+                  "kind": "Transformation",
+                  "group": "sortBy",
+                  "spec": {
+                    "options": {
+                      "fields": {},
+                      "sort": [
+                        {
+                          "desc": false,
+                          "field": "Avg Eval Score"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "queryOptions": {}
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "table",
+            "version": "13.1.0-25668120414",
+            "spec": {
+              "options": {
+                "cellHeight": "md",
+                "showHeader": true,
+                "sortBy": [
+                  {
+                    "desc": true,
+                    "displayName": "Avg Eval Score"
+                  }
+                ]
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "value": 0,
+                        "color": "green"
+                      }
+                    ]
+                  },
+                  "custom": {
+                    "align": "left",
+                    "cellOptions": {
+                      "type": "auto"
+                    },
+                    "footer": {
+                      "reducers": []
+                    },
+                    "inspect": false
+                  }
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "User"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 220
+                      },
+                      {
+                        "id": "custom.align",
+                        "value": "left"
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "Avg Eval Score"
+                    },
+                    "properties": [
+                      {
+                        "id": "unit",
+                        "value": "short"
+                      },
+                      {
+                        "id": "decimals",
+                        "value": 0
+                      },
+                      {
+                        "id": "min",
+                        "value": 0
+                      },
+                      {
+                        "id": "max",
+                        "value": 100
+                      },
+                      {
+                        "id": "custom.cellOptions",
+                        "value": {
+                          "mode": "gradient",
+                          "type": "gauge",
+                          "valueDisplayMode": "text"
+                        }
+                      },
+                      {
+                        "id": "thresholds",
+                        "value": {
+                          "mode": "absolute",
+                          "steps": [
+                            {
+                              "value": 0,
+                              "color": "red"
+                            },
+                            {
+                              "value": 50,
+                              "color": "orange"
+                            },
+                            {
+                              "value": 75,
+                              "color": "green"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "Input Tokens"
+                    },
+                    "properties": [
+                      {
+                        "id": "unit",
+                        "value": "short"
+                      },
+                      {
+                        "id": "decimals",
+                        "value": 0
+                      },
+                      {
+                        "id": "custom.cellOptions",
+                        "value": {
+                          "mode": "gradient",
+                          "type": "gauge",
+                          "valueDisplayMode": "text"
+                        }
+                      },
+                      {
+                        "id": "color",
+                        "value": {
+                          "mode": "continuous-blues"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "Output Tokens"
+                    },
+                    "properties": [
+                      {
+                        "id": "unit",
+                        "value": "short"
+                      },
+                      {
+                        "id": "decimals",
+                        "value": 0
+                      },
+                      {
+                        "id": "custom.cellOptions",
+                        "value": {
+                          "mode": "gradient",
+                          "type": "gauge",
+                          "valueDisplayMode": "text"
+                        }
+                      },
+                      {
+                        "id": "color",
+                        "value": {
+                          "mode": "continuous-blues"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "$ Cost (24h)"
+                    },
+                    "properties": [
+                      {
+                        "id": "unit",
+                        "value": "currencyUSD"
+                      },
+                      {
+                        "id": "decimals",
+                        "value": 4
+                      },
+                      {
+                        "id": "custom.cellOptions",
+                        "value": {
+                          "mode": "gradient",
+                          "type": "gauge",
+                          "valueDisplayMode": "text"
+                        }
+                      },
+                      {
+                        "id": "color",
+                        "value": {
+                          "mode": "continuous-reds"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
       }
     },
     "layout": {
@@ -1070,7 +1445,7 @@
           {
             "kind": "RowsLayoutRow",
             "spec": {
-              "title": "\ud83e\uddfe Top problem conversations (1h)",
+              "title": "\ud83e\uddfe Top problem conversations (24h)",
               "collapse": false,
               "layout": {
                 "kind": "GridLayout",
@@ -1086,6 +1461,33 @@
                         "element": {
                           "kind": "ElementReference",
                           "name": "panel-6"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "kind": "RowsLayoutRow",
+            "spec": {
+              "title": "\ud83e\uddd1 Worst employees (24h)",
+              "collapse": false,
+              "layout": {
+                "kind": "GridLayout",
+                "spec": {
+                  "items": [
+                    {
+                      "kind": "GridLayoutItem",
+                      "spec": {
+                        "x": 0,
+                        "y": 0,
+                        "width": 24,
+                        "height": 10,
+                        "element": {
+                          "kind": "ElementReference",
+                          "name": "panel-7"
                         }
                       }
                     }
