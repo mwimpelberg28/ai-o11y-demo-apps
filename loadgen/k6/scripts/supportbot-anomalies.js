@@ -17,14 +17,28 @@
 
 import { sleep } from 'k6';
 import {
-  request, loadUsers, randInt, pickOne, randSessionId, randConversationId,
+  request, loadUsers, randInt, pickOne, randConversationId,
 } from './_common.js';
 
 // ── init context ──────────────────────────────────────────────────────────────
 
 const USERS = loadUsers();                  // already sliced to 5 by orchestrator
 const BASE = __ENV.SB_BASE_URL || 'http://sb-web.support-bot.svc.cluster.local';
-const INTERVAL_SEC = 600;                   // 10 minutes between problems
+const INTERVAL_MIN_SEC = 300;               // 5 min lower bound
+const INTERVAL_MAX_SEC = 1200;              // 20 min upper bound
+
+// Hex helper for tagged session IDs — same shape as _common.randSessionId
+// but with a problem-type prefix so the dashboard table can show it as
+// the "conversation title".
+function tagHex(len) {
+  const chars = '0123456789abcdef';
+  let s = '';
+  for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * 16)];
+  return s;
+}
+function taggedSession(prefix) {
+  return `sess_${prefix}_${tagHex(12)}`;
+}
 
 // ── k6 options ────────────────────────────────────────────────────────────────
 
@@ -55,16 +69,18 @@ function ask(user, sessionId, conversationId, question, opts) {
 
 // ── problem: runaway_loop ─────────────────────────────────────────────────────
 //
-// User's chat client stuck in a retry/poll loop. Calls per minute jumps
-// 10-50x for 180 seconds, then stops abruptly (as if the loop crashed).
+// User's chat client stuck in a retry/poll loop. Calls per minute spikes
+// for 180 seconds, then stops abruptly (as if the loop crashed). Peak
+// drawn from a wide range so successive bursts look visibly distinct on
+// the dashboard.
 function runRunawayLoop(user) {
   const durationSec = 180;
-  const callsPerMin = randInt(10, 50);
+  const callsPerMin = randInt(5, 80);
   const intervalMs = Math.max(50, Math.round(60_000 / callsPerMin));
   const conv = randConversationId();
-  const session = randSessionId();
+  const session = taggedSession('anomrun');
   const startMs = Date.now();
-  console.log(`[anomaly] runaway_loop user=${user.email} target=${callsPerMin}/min duration=${durationSec}s`);
+  console.log(`[anomaly] runaway_loop user=${user.email} target=${callsPerMin}/min duration=${durationSec}s session=${session}`);
   let count = 0;
   while ((Date.now() - startMs) < durationSec * 1000) {
     ask(user, session, conv, "is anyone there? can you help with my last question?", { timeout: '30s' });
@@ -76,15 +92,16 @@ function runRunawayLoop(user) {
 
 // ── problem: token_glutton ────────────────────────────────────────────────────
 //
-// User asks for huge documents — output token usage spikes 10-50x for 2 min.
+// User asks for huge documents — output token usage spikes for ~2 minutes.
 // We bake the magnitude into the prompt (Nx-page report) so Ollama actually
-// emits a proportionally large response.
+// emits a proportionally large response; the call rate also varies a bit
+// so successive bursts don't look identical on the dashboard.
 function runTokenGlutton(user) {
   const durationSec = 120;
-  const multiplier = randInt(10, 50);
+  const multiplier = randInt(5, 80);
+  const callsPerMin = randInt(20, 80);
   const conv = randConversationId();
-  const session = randSessionId();
-  const callsPerMin = 60;                   // ~1 req/sec
+  const session = taggedSession('anomglut');
   const intervalMs = Math.round(60_000 / callsPerMin);
   const huge =
     `Write me a complete ${multiplier}-page internal knowledge-base article ` +
@@ -97,7 +114,7 @@ function runTokenGlutton(user) {
     `of every team. Spell EVERY section out in full — do not summarize. ` +
     `I want a complete reference doc with all details inline.`;
   const startMs = Date.now();
-  console.log(`[anomaly] token_glutton user=${user.email} multiplier=${multiplier}x duration=${durationSec}s`);
+  console.log(`[anomaly] token_glutton user=${user.email} pages=${multiplier} rate=${callsPerMin}/min duration=${durationSec}s session=${session}`);
   let count = 0;
   while ((Date.now() - startMs) < durationSec * 1000) {
     ask(user, session, conv, huge, { timeout: '90s' });
@@ -132,7 +149,10 @@ export function session() {
     console.log(`[anomaly] problem=${problem.id} threw: ${e}`);
   }
   const elapsedSec = (Date.now() - t0) / 1000;
-  const wait = Math.max(1, INTERVAL_SEC - elapsedSec);
-  console.log(`[anomaly] iteration done elapsed=${elapsedSec.toFixed(1)}s next=${wait.toFixed(1)}s`);
+  // Per-iteration random pause: each gap is independently sampled from
+  // [5, 20] minutes so successive bursts don't fall on a predictable cadence.
+  const intervalSec = randInt(INTERVAL_MIN_SEC, INTERVAL_MAX_SEC);
+  const wait = Math.max(1, intervalSec - elapsedSec);
+  console.log(`[anomaly] iteration done elapsed=${elapsedSec.toFixed(1)}s next=${wait.toFixed(1)}s (interval=${intervalSec}s)`);
   sleep(wait);
 }

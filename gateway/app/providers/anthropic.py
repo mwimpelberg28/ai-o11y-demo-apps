@@ -445,7 +445,7 @@ async def generate(req: ProviderRequest, sigil_client: Any) -> ProviderResponse:
         agent_name=req.agent_name or "unknown-agent",
         user_id=req.user_id or "",
     )
-    record_cost(**_attrs, cost_usd=cost_usd)
+    record_cost(**_attrs, session_id=req.session_id or "", cost_usd=cost_usd)
     record_user_call(**_attrs)
     record_user_tokens(**_attrs, input_tokens=input_tokens, output_tokens=output_tokens)
 

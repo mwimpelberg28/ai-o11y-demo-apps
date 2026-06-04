@@ -72,11 +72,14 @@ def record_fallback(*, from_provider: str, to_provider: str, caller_type: str) -
     )
 
 
-def record_cost(*, provider: str, model: str, agent_name: str, user_id: str, cost_usd: float) -> None:
+def record_cost(*, provider: str, model: str, agent_name: str, user_id: str,
+                session_id: str = "", cost_usd: float) -> None:
     """Record one LLM call's cost with full provider/model/agent/user attribution.
 
     No-op on zero/negative cost (e.g. Ollama with no per-token pricing
-    configured wouldn't add noise to the counter).
+    configured wouldn't add noise to the counter). session_id lets dashboards
+    answer "top sessions by spend" — conversation-level granularity that the
+    user-level aggregates can't show.
     """
     if cost_usd is None or cost_usd <= 0:
         return
@@ -87,6 +90,7 @@ def record_cost(*, provider: str, model: str, agent_name: str, user_id: str, cos
             "gen_ai.request.model": model,
             "gen_ai.agent.name": agent_name,
             "user_id": user_id or "unknown",
+            "session_id": session_id or "",
         },
     )
 

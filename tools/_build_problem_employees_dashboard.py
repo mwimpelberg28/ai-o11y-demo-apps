@@ -165,6 +165,144 @@ def timeseries_panel(pid: int, title: str, description: str, expr: str, legend: 
     }
 
 
+def table_panel(pid: int, title: str, description: str,
+                queries: list[tuple[str, str]],
+                join_field: str,
+                column_order: list[tuple[str, str]],  # (raw_field, display_name)
+                sort_by_display: str) -> dict:
+    """Build a v2 table panel that joins multiple instant queries on `join_field`.
+
+    `queries` is a list of (refId, expr). Each query renders one Value #refId
+    column. `column_order` is the desired column ordering by raw name. The
+    first column should usually be the join_field.
+    """
+    panel_queries = []
+    for ref, expr in queries:
+        panel_queries.append({
+            "kind": "PanelQuery",
+            "spec": {
+                "query": {
+                    "kind": "DataQuery",
+                    "group": "prometheus",
+                    "version": "v0",
+                    "datasource": DS,
+                    "spec": {"expr": expr, "format": "table", "instant": True},
+                },
+                "refId": ref,
+                "hidden": False,
+            },
+        })
+
+    index_by_name = {raw: i for i, (raw, _) in enumerate(column_order)}
+    rename_by_name = {raw: disp for raw, disp in column_order}
+    # Hide every Time # column produced by `format: table`.
+    exclude_by_name = {f"Time {i+1}": True for i in range(len(queries))}
+
+    overrides = []
+    for raw, disp in column_order:
+        if "Cost" in disp or "$" in disp:
+            overrides.append({
+                "matcher": {"id": "byName", "options": disp},
+                "properties": [
+                    {"id": "unit", "value": "currencyUSD"},
+                    {"id": "decimals", "value": 4},
+                    {"id": "custom.cellOptions",
+                     "value": {"mode": "gradient", "type": "gauge", "valueDisplayMode": "text"}},
+                    {"id": "color", "value": {"mode": "continuous-reds"}},
+                ],
+            })
+        elif "Token" in disp:
+            overrides.append({
+                "matcher": {"id": "byName", "options": disp},
+                "properties": [
+                    {"id": "unit", "value": "short"},
+                    {"id": "decimals", "value": 0},
+                    {"id": "custom.cellOptions",
+                     "value": {"mode": "gradient", "type": "gauge", "valueDisplayMode": "text"}},
+                    {"id": "color", "value": {"mode": "continuous-blues"}},
+                ],
+            })
+        elif disp in ("Conversation", "User"):
+            overrides.append({
+                "matcher": {"id": "byName", "options": disp},
+                "properties": [
+                    {"id": "custom.width", "value": 280 if disp == "Conversation" else 220},
+                    {"id": "custom.align", "value": "left"},
+                ],
+            })
+
+    return {
+        "kind": "Panel",
+        "spec": {
+            "id": pid,
+            "title": title,
+            "description": description,
+            "links": [],
+            "data": {
+                "kind": "QueryGroup",
+                "spec": {
+                    "queries": panel_queries,
+                    "transformations": [
+                        {
+                            "kind": "Transformation",
+                            "group": "joinByField",
+                            "spec": {"options": {"byField": join_field, "mode": "outer"}},
+                        },
+                        {
+                            "kind": "Transformation",
+                            "group": "organize",
+                            "spec": {
+                                "options": {
+                                    "excludeByName": exclude_by_name,
+                                    "indexByName": index_by_name,
+                                    "renameByName": rename_by_name,
+                                },
+                            },
+                        },
+                        {
+                            "kind": "Transformation",
+                            "group": "sortBy",
+                            "spec": {
+                                "options": {
+                                    "fields": {},
+                                    "sort": [{"desc": True, "field": sort_by_display}],
+                                },
+                            },
+                        },
+                    ],
+                    "queryOptions": {},
+                },
+            },
+            "vizConfig": {
+                "kind": "VizConfig",
+                "group": "table",
+                "version": VERSION,
+                "spec": {
+                    "options": {
+                        "cellHeight": "md",
+                        "showHeader": True,
+                        "sortBy": [{"desc": True, "displayName": sort_by_display}],
+                    },
+                    "fieldConfig": {
+                        "defaults": {
+                            "thresholds": {"mode": "absolute", "steps": [
+                                {"value": 0, "color": "green"},
+                            ]},
+                            "custom": {
+                                "align": "left",
+                                "cellOptions": {"type": "auto"},
+                                "footer": {"reducers": []},
+                                "inspect": False,
+                            },
+                        },
+                        "overrides": overrides,
+                    },
+                },
+            },
+        },
+    }
+
+
 def grid_item(x, y, w, h, panel_name) -> dict:
     return {
         "kind": "GridLayoutItem",
@@ -243,6 +381,31 @@ elements["panel-5"] = timeseries_panel(
     stacking="normal",
 )
 
+# Row 4 table — top conversations by spend
+# Anomaly bursts tag their session_ids with `sess_anomrun_*` and
+# `sess_anomglut_*` so they're identifiable as the "title" column. Regular
+# SB sessions (sess_<hex>) still show up; they're just much cheaper and
+# fall to the bottom of the cost-sorted table.
+elements["panel-6"] = table_panel(
+    6,
+    "Top conversations by tokens (1h)",
+    "Top SupportBot conversations by output tokens in the last hour. Anomaly bursts (sess_anomrun_* / sess_anomglut_*) bubble to the top — token-glutton bursts dominate the output column, runaway-loop bursts dominate input. The Cost column reads $0 for Ollama (no per-token pricing configured) and real $$ for Anthropic chats — that's the story.",
+    queries=[
+        ("input",  f'sum by (session_id, user_id) (increase(gen_ai_client_token_usage_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[1h]))'),
+        ("output", f'sum by (session_id, user_id) (increase(gen_ai_client_token_usage_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[1h]))'),
+        ("cost",   f'sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[1h]))'),
+    ],
+    join_field="session_id",
+    column_order=[
+        ("session_id",   "Conversation"),
+        ("user_id",      "User"),
+        ("Value #input", "Input Tokens"),
+        ("Value #output","Output Tokens"),
+        ("Value #cost",  "$ Cost (1h)"),
+    ],
+    sort_by_display="Output Tokens",
+)
+
 # ── Build layout ──────────────────────────────────────────────────────────────
 
 layout = {
@@ -259,6 +422,9 @@ layout = {
             ]),
             row("🔍 Provider routing — confirms Ollama pinning held", [
                 grid_item(0, 0, 24, 7, "panel-5"),
+            ]),
+            row("🧾 Top problem conversations (1h)", [
+                grid_item(0, 0, 24, 12, "panel-6"),
             ]),
         ],
     },
