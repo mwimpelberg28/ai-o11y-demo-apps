@@ -206,8 +206,8 @@ elements["panel-2"] = stat_panel(
     2,
     "Top call-rate user (5m)",
     "User firing the most LLM calls in the last 5 minutes (per minute). Catches the runaway-loop anomaly (one user stuck in a retry loop).",
-    f'topk(1, sum by (user_id) (rate(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[5m])) * 60)',
-    unit="cps",
+    f'topk(1, sum by (user_id) (rate(gen_ai_user_calls_total{{user_id=~"{USER_RE}"}}[5m])) * 60)',
+    unit="cpm",
     decimals=1,
     color="#dc267f",
     text_mode="value_and_name",
@@ -225,9 +225,9 @@ elements["panel-3"] = timeseries_panel(
 
 elements["panel-4"] = timeseries_panel(
     4,
-    "Calls/min by user — top 5 (1m rate)",
+    "Calls/min by user — top 5 (5m rate)",
     "LLM-call rate per acme.com user. A user pegging 10-50x the others is a runaway-loop spike — k6 anomaly scenario runs 180s bursts.",
-    f'topk(5, sum by (user_id) (rate(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[1m])) * 60)',
+    f'topk(5, sum by (user_id) (rate(gen_ai_user_calls_total{{user_id=~"{USER_RE}"}}[5m])) * 60)',
     legend="{{user_id}}",
     unit="cpm",
 )
@@ -235,11 +235,11 @@ elements["panel-4"] = timeseries_panel(
 # Row 3 timeseries — provider distribution
 elements["panel-5"] = timeseries_panel(
     5,
-    "acme.com traffic by provider (1m rate)",
+    "acme.com calls/min by provider (5m rate)",
     "All acme.com SB user traffic split by provider. Anomaly bursts pin preferred_provider=ollama so spikes shouldn't move the anthropic line.",
-    f'sum by (gen_ai_system) (rate(gen_ai_user_tokens_total{{user_id=~"{USER_RE}"}}[1m]))',
+    f'sum by (gen_ai_system) (rate(gen_ai_user_calls_total{{user_id=~"{USER_RE}"}}[5m])) * 60',
     legend="{{gen_ai_system}}",
-    unit="short",
+    unit="cpm",
     stacking="normal",
 )
 

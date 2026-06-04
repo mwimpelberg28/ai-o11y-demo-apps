@@ -150,7 +150,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "topk(1, sum by (user_id) (rate(gen_ai_user_tokens_total{gen_ai_token_type=\"input\",user_id=~\".+@acme.com\"}[5m])) * 60)",
+                        "expr": "topk(1, sum by (user_id) (rate(gen_ai_user_calls_total{user_id=~\".+@acme.com\"}[5m])) * 60)",
                         "legendFormat": "{{user_id}}",
                         "instant": true
                       }
@@ -188,7 +188,7 @@
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "cps",
+                  "unit": "cpm",
                   "decimals": 1,
                   "thresholds": {
                     "mode": "absolute",
@@ -338,7 +338,7 @@
         "kind": "Panel",
         "spec": {
           "id": 4,
-          "title": "Calls/min by user \u2014 top 5 (1m rate)",
+          "title": "Calls/min by user \u2014 top 5 (5m rate)",
           "description": "LLM-call rate per acme.com user. A user pegging 10-50x the others is a runaway-loop spike \u2014 k6 anomaly scenario runs 180s bursts.",
           "links": [],
           "data": {
@@ -356,7 +356,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "topk(5, sum by (user_id) (rate(gen_ai_user_tokens_total{gen_ai_token_type=\"input\",user_id=~\".+@acme.com\"}[1m])) * 60)",
+                        "expr": "topk(5, sum by (user_id) (rate(gen_ai_user_calls_total{user_id=~\".+@acme.com\"}[5m])) * 60)",
                         "legendFormat": "{{user_id}}"
                       }
                     },
@@ -454,7 +454,7 @@
         "kind": "Panel",
         "spec": {
           "id": 5,
-          "title": "acme.com traffic by provider (1m rate)",
+          "title": "acme.com calls/min by provider (5m rate)",
           "description": "All acme.com SB user traffic split by provider. Anomaly bursts pin preferred_provider=ollama so spikes shouldn't move the anthropic line.",
           "links": [],
           "data": {
@@ -472,7 +472,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (gen_ai_system) (rate(gen_ai_user_tokens_total{user_id=~\".+@acme.com\"}[1m]))",
+                        "expr": "sum by (gen_ai_system) (rate(gen_ai_user_calls_total{user_id=~\".+@acme.com\"}[5m])) * 60",
                         "legendFormat": "{{gen_ai_system}}"
                       }
                     },
@@ -510,7 +510,7 @@
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "short",
+                  "unit": "cpm",
                   "decimals": 1,
                   "min": 0,
                   "thresholds": {
