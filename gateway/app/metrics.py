@@ -109,13 +109,21 @@ def record_user_call(*, provider: str, model: str, agent_name: str, user_id: str
 
 
 def record_user_tokens(*, provider: str, model: str, agent_name: str, user_id: str,
+                       session_id: str = "",
                        input_tokens: int, output_tokens: int) -> None:
-    """Increment per-user token counters for one LLM call's input + output."""
+    """Increment per-user token counters for one LLM call's input + output.
+
+    session_id lets dashboards group tokens by conversation — required for
+    the "top problem conversations" table since the live token counter
+    (gen_ai_client_token_usage_total) is deprecated and gen_ai_client_token_usage_sum
+    lacks user_id/session_id.
+    """
     common = {
         "gen_ai.system": provider,
         "gen_ai.request.model": model,
         "gen_ai.agent.name": agent_name,
         "user_id": user_id or "unknown",
+        "session_id": session_id or "",
     }
     if input_tokens > 0:
         user_tokens_counter.add(input_tokens, attributes={**common, "gen_ai.token.type": "input"})

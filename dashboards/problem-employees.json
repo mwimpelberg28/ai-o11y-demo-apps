@@ -588,7 +588,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id) (increase(gen_ai_client_token_usage_total{gen_ai_token_type=\"input\",user_id=~\".+@acme.com\"}[1h]))",
+                        "expr": "sum by (session_id, user_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"input\",user_id=~\".+@acme.com\"}[1h]))",
                         "format": "table",
                         "instant": true
                       }
@@ -608,7 +608,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id) (increase(gen_ai_client_token_usage_total{gen_ai_token_type=\"output\",user_id=~\".+@acme.com\"}[1h]))",
+                        "expr": "sum by (session_id, user_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"output\",user_id=~\".+@acme.com\"}[1h]))",
                         "format": "table",
                         "instant": true
                       }

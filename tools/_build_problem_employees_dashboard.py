@@ -391,8 +391,8 @@ elements["panel-6"] = table_panel(
     "Top conversations by tokens (1h)",
     "Top SupportBot conversations by output tokens in the last hour. Anomaly bursts (sess_anomrun_* / sess_anomglut_*) bubble to the top — token-glutton bursts dominate the output column, runaway-loop bursts dominate input. The Cost column reads $0 for Ollama (no per-token pricing configured) and real $$ for Anthropic chats — that's the story.",
     queries=[
-        ("input",  f'sum by (session_id, user_id) (increase(gen_ai_client_token_usage_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[1h]))'),
-        ("output", f'sum by (session_id, user_id) (increase(gen_ai_client_token_usage_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[1h]))'),
+        ("input",  f'sum by (session_id, user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[1h]))'),
+        ("output", f'sum by (session_id, user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[1h]))'),
         ("cost",   f'sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[1h]))'),
     ],
     join_field="session_id",
