@@ -173,7 +173,8 @@ def table_panel(pid: int, title: str, description: str,
                 sort_desc: bool = True,
                 hidden_columns: list[str] | None = None,
                 shared_label_fields: list[str] | None = None,
-                column_links: dict[str, list[dict]] | None = None) -> dict:
+                column_links: dict[str, list[dict]] | None = None,
+                join_mode: str = "outer") -> dict:
     """Build a v2 table panel that joins multiple instant queries on `join_field`.
 
     `queries` is a list of (refId, expr). Each query renders one Value #refId
@@ -270,7 +271,7 @@ def table_panel(pid: int, title: str, description: str,
             overrides.append({
                 "matcher": {"id": "byName", "options": disp},
                 "properties": [
-                    {"id": "unit", "value": "short"},
+                    {"id": "unit", "value": "percent"},
                     {"id": "decimals", "value": 0},
                     {"id": "min", "value": 0},
                     {"id": "max", "value": 100},
@@ -299,7 +300,7 @@ def table_panel(pid: int, title: str, description: str,
                         {
                             "kind": "Transformation",
                             "group": "joinByField",
-                            "spec": {"options": {"byField": join_field, "mode": "outer"}},
+                            "spec": {"options": {"byField": join_field, "mode": join_mode}},
                         },
                         {
                             "kind": "Transformation",
@@ -350,6 +351,29 @@ def table_panel(pid: int, title: str, description: str,
                         },
                         "overrides": overrides,
                     },
+                },
+            },
+        },
+    }
+
+
+def text_panel(pid: int, title: str, markdown: str) -> dict:
+    """A Grafana text panel rendering markdown — used for inline explainers."""
+    return {
+        "kind": "Panel",
+        "spec": {
+            "id": pid,
+            "title": title,
+            "description": "",
+            "links": [],
+            "data": {"kind": "QueryGroup", "spec": {"queries": [], "transformations": [], "queryOptions": {}}},
+            "vizConfig": {
+                "kind": "VizConfig",
+                "group": "text",
+                "version": VERSION,
+                "spec": {
+                    "options": {"mode": "markdown", "content": markdown},
+                    "fieldConfig": {"defaults": {}, "overrides": []},
                 },
             },
         },
@@ -439,31 +463,47 @@ elements["panel-5"] = timeseries_panel(
 # `sess_anomglut_*` so they're identifiable as the "title" column. Regular
 # SB sessions (sess_<hex>) still show up; they're just much cheaper and
 # fall to the bottom of the cost-sorted table.
+_FILTER = f'user_id=~"{USER_RE}",session_id!=""'
+# Cost fill: gateway's record_cost skips $0, so Ollama sessions have no
+# cost series. Add `or (output_tokens * 0)` so every session has SOME
+# cost value (real $$ for Anthropic, $0 for Ollama) — keeps Ollama
+# anomaly bursts visible in the table after the inner-join filter.
+_COST_FILLED_SESSION = (
+    f'sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{{{_FILTER}}}[24h])) '
+    f'or '
+    f'sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="output"}}[24h])) * 0'
+)
+
 elements["panel-6"] = table_panel(
     6,
-    "Top conversations by tokens (24h)",
-    "Top SupportBot conversations by output tokens in the last 24 hours. 24h window keeps bursts visible all day so the table is stable, not churning every minute as the 1h boundary slides. Anomaly bursts (sess_anomrun_* / sess_anomglut_*) bubble to the top — token-glutton bursts dominate the output column, runaway-loop bursts dominate input. The Cost column reads $0 for Ollama (no per-token pricing configured) and real $$ for Anthropic chats. Click the Conversation cell to open it in AI o11y.",
+    "Top problem conversations (24h)",
+    "Top SupportBot conversations by $ wasted in the last 24h. Inner-joined: only conversations that have a cost figure AND have been scored by the evaluator appear (no blank cells). Click the Conversation cell to open the trace in AI o11y.",
     queries=[
         # user_id + conversation_id are present on every query so they need
         # `shared_label_fields` handling to dedupe after joinByField.
-        # cost + score queries do NOT carry conversation_id (those metrics lack
-        # it), so dedupe drops the empty suffixed copies.
-        ("input",  f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[24h]))'),
-        ("output", f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[24h]))'),
-        ("cost",   f'sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[24h]))'),
-        # Eval score: instant gauge from the conversation-evaluator service.
-        # Missing for un-scored sessions — they render with empty Score cell.
+        ("input",  f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="input"}}[24h]))'),
+        ("output", f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="output"}}[24h]))'),
+        ("cost",   _COST_FILLED_SESSION),
         ("score",  f'max by (session_id, user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}})'),
+        # Per-session Wasted $$ = cost * (1 - score/100). Vector-multiplied
+        # on (session_id, user_id). Ollama sessions get cost=0 from the fill
+        # above so their Wasted $$ is also 0 — correctly attributed.
+        ("waste",  (
+            f'({_COST_FILLED_SESSION}) '
+            f'* on(session_id, user_id) (1 - max by (session_id, user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}}) / 100)'
+        )),
     ],
     join_field="session_id",
+    join_mode="inner",
     shared_label_fields=["user_id", "conversation_id"],
     column_order=[
         ("session_id",      "Conversation"),
         ("user_id",         "User"),
+        ("Value #cost",     "$ Cost (24h)"),
         ("Value #score",    "Eval Score"),
+        ("Value #waste",    "Wasted $$"),
         ("Value #input",    "Input Tokens"),
         ("Value #output",   "Output Tokens"),
-        ("Value #cost",     "$ Cost (24h)"),
         ("conversation_id", "conv_id"),     # hidden — feeds the data link
     ],
     hidden_columns=["conv_id"],
@@ -474,43 +514,71 @@ elements["panel-6"] = table_panel(
             "targetBlank": True,
         }],
     },
-    sort_by_display="Output Tokens",
+    sort_by_display="Wasted $$",
 )
 
 # Row 5 table — worst employees (aggregate of conversations by user_id)
 # Sorted by avg eval score ASC so the "least valuable AI use" employees
 # bubble to the top — they're the demo's "who's wasting the budget" story.
+_COST_FILLED_USER = (
+    f'sum by (user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[24h])) '
+    f'or '
+    f'sum by (user_id) (max_over_time(gen_ai_user_tokens_total{{user_id=~"{USER_RE}",gen_ai_token_type="output"}}[24h])) * 0'
+)
+
 elements["panel-7"] = table_panel(
     7,
     "Worst employees by waste (24h)",
-    "Per-employee aggregate over the last 24h. **$ Wasted = $ Cost × (1 − Avg Eval Score / 100)** — the composite of spend × inefficiency. An employee who spends $5 at a score of 100 wastes $0; one who spends $1 at a score of 0 wastes $1. Sessions = distinct conversation_ids the employee opened in the window.",
+    "Per-employee aggregate over the last 24h. Sessions = distinct conversation_ids the employee opened. Inner-joined: only employees with both a cost figure and at least one scored conversation appear.",
     queries=[
         ("sessions", f'count by (user_id) (count by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[24h])))'),
         ("input",    f'sum by (user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[24h]))'),
         ("output",   f'sum by (user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[24h]))'),
-        ("cost",     f'sum by (user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[24h]))'),
+        ("cost",     _COST_FILLED_USER),
         ("score",    f'avg by (user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}})'),
-        # Waste = cost * (1 - score/100). Both subexpressions have only the
-        # user_id label, so the implicit one-to-one vector match on user_id
-        # works directly. Users with cost but no eval score drop out — fine,
-        # they show as blank in this column.
+        # Waste = cost * (1 - score/100). user_id-only vector match.
         ("waste",    (
-            f'sum by (user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[24h])) '
-            f'* (1 - avg by (user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}}) / 100)'
+            f'({_COST_FILLED_USER}) '
+            f'* on(user_id) (1 - avg by (user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}}) / 100)'
         )),
     ],
     join_field="user_id",
+    join_mode="inner",
     column_order=[
         ("user_id",         "User"),
-        ("Value #waste",    "Wasted $$"),
+        ("Value #cost",     "$ Cost (24h)"),
         ("Value #score",    "Avg Eval Score"),
+        ("Value #waste",    "Wasted $$"),
         ("Value #sessions", "Sessions"),
         ("Value #input",    "Input Tokens"),
         ("Value #output",   "Output Tokens"),
-        ("Value #cost",     "$ Cost (24h)"),
     ],
     sort_by_display="Wasted $$",
     sort_desc=True,  # most-wasteful first
+)
+
+
+# Explainer text panel that sits above both tables.
+elements["panel-8"] = text_panel(
+    8,
+    "",
+    (
+        "### How to read these tables\n"
+        "\n"
+        "**Wasted $$** = `Cost × (1 − Eval Score / 100)`. It captures **both** "
+        "axes of \"bad AI usage\" — spending money *and* not getting value for it.\n"
+        "\n"
+        "- An employee who spends **$100** with an eval score of **80%** → "
+        "`$100 × (1 − 0.80)` = **$20 wasted**.\n"
+        "- An employee who spends **$100** with an eval score of **0%** → "
+        "`$100 × (1 − 0)` = **$100 wasted** — every dollar burned on bad AI use.\n"
+        "- An employee at score **100%** wastes **$0** no matter how much they "
+        "spend — perfect use of the AI budget.\n"
+        "\n"
+        "Eval scores come from an Ollama-driven judge (qwen2.5:14b) running "
+        "outside the LLM gateway. Both tables show only rows with full data "
+        "— blank cells are filtered out."
+    ),
 )
 
 
@@ -530,6 +598,9 @@ layout = {
             ]),
             row("🔍 Provider routing — confirms Ollama pinning held", [
                 grid_item(0, 0, 24, 7, "panel-5"),
+            ]),
+            row("💰 Wasted spend — how to read it", [
+                grid_item(0, 0, 24, 6, "panel-8"),
             ]),
             row("🧾 Top problem conversations (24h)", [
                 grid_item(0, 0, 24, 12, "panel-6"),

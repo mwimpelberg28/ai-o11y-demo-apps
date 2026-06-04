@@ -570,8 +570,8 @@
         "kind": "Panel",
         "spec": {
           "id": 6,
-          "title": "Top conversations by tokens (24h)",
-          "description": "Top SupportBot conversations by output tokens in the last 24 hours. 24h window keeps bursts visible all day so the table is stable, not churning every minute as the 1h boundary slides. Anomaly bursts (sess_anomrun_* / sess_anomglut_*) bubble to the top \u2014 token-glutton bursts dominate the output column, runaway-loop bursts dominate input. The Cost column reads $0 for Ollama (no per-token pricing configured) and real $$ for Anthropic chats. Click the Conversation cell to open it in AI o11y.",
+          "title": "Top problem conversations (24h)",
+          "description": "Top SupportBot conversations by $ wasted in the last 24h. Inner-joined: only conversations that have a cost figure AND have been scored by the evaluator appear (no blank cells). Click the Conversation cell to open the trace in AI o11y.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -588,7 +588,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"input\",user_id=~\".+@acme.com\"}[24h]))",
+                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"input\"}[24h]))",
                         "format": "table",
                         "instant": true
                       }
@@ -608,7 +608,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"output\",user_id=~\".+@acme.com\"}[24h]))",
+                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[24h]))",
                         "format": "table",
                         "instant": true
                       }
@@ -628,7 +628,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\"}[24h]))",
+                        "expr": "sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\",session_id!=\"\"}[24h])) or sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[24h])) * 0",
                         "format": "table",
                         "instant": true
                       }
@@ -656,6 +656,26 @@
                     "refId": "score",
                     "hidden": false
                   }
+                },
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "prometheus",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "grafanacloud-prom"
+                      },
+                      "spec": {
+                        "expr": "(sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\",session_id!=\"\"}[24h])) or sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[24h])) * 0) * on(session_id, user_id) (1 - max by (session_id, user_id) (conversation_eval_score{user_id=~\".+@acme.com\"}) / 100)",
+                        "format": "table",
+                        "instant": true
+                      }
+                    },
+                    "refId": "waste",
+                    "hidden": false
+                  }
                 }
               ],
               "transformations": [
@@ -665,7 +685,7 @@
                   "spec": {
                     "options": {
                       "byField": "session_id",
-                      "mode": "outer"
+                      "mode": "inner"
                     }
                   }
                 },
@@ -679,30 +699,35 @@
                         "Time 2": true,
                         "Time 3": true,
                         "Time 4": true,
+                        "Time 5": true,
                         "conversation_id 2": true,
                         "conversation_id 3": true,
                         "conversation_id 4": true,
+                        "conversation_id 5": true,
                         "user_id 2": true,
                         "user_id 3": true,
                         "user_id 4": true,
+                        "user_id 5": true,
                         "conversation_id 1": true
                       },
                       "indexByName": {
                         "session_id": 0,
                         "user_id 1": 1,
-                        "Value #score": 2,
-                        "Value #input": 3,
-                        "Value #output": 4,
-                        "Value #cost": 5,
-                        "conversation_id 1": 6
+                        "Value #cost": 2,
+                        "Value #score": 3,
+                        "Value #waste": 4,
+                        "Value #input": 5,
+                        "Value #output": 6,
+                        "conversation_id 1": 7
                       },
                       "renameByName": {
                         "session_id": "Conversation",
                         "user_id 1": "User",
+                        "Value #cost": "$ Cost (24h)",
                         "Value #score": "Eval Score",
+                        "Value #waste": "Wasted $$",
                         "Value #input": "Input Tokens",
                         "Value #output": "Output Tokens",
-                        "Value #cost": "$ Cost (24h)",
                         "conversation_id 1": "conv_id"
                       }
                     }
@@ -717,7 +742,7 @@
                       "sort": [
                         {
                           "desc": true,
-                          "field": "Output Tokens"
+                          "field": "Wasted $$"
                         }
                       ]
                     }
@@ -738,7 +763,7 @@
                 "sortBy": [
                   {
                     "desc": true,
-                    "displayName": "Output Tokens"
+                    "displayName": "Wasted $$"
                   }
                 ]
               },
@@ -810,12 +835,42 @@
                   {
                     "matcher": {
                       "id": "byName",
+                      "options": "$ Cost (24h)"
+                    },
+                    "properties": [
+                      {
+                        "id": "unit",
+                        "value": "currencyUSD"
+                      },
+                      {
+                        "id": "decimals",
+                        "value": 4
+                      },
+                      {
+                        "id": "custom.cellOptions",
+                        "value": {
+                          "mode": "gradient",
+                          "type": "gauge",
+                          "valueDisplayMode": "text"
+                        }
+                      },
+                      {
+                        "id": "color",
+                        "value": {
+                          "mode": "continuous-reds"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
                       "options": "Eval Score"
                     },
                     "properties": [
                       {
                         "id": "unit",
-                        "value": "short"
+                        "value": "percent"
                       },
                       {
                         "id": "decimals",
@@ -855,6 +910,36 @@
                               "color": "green"
                             }
                           ]
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "Wasted $$"
+                    },
+                    "properties": [
+                      {
+                        "id": "unit",
+                        "value": "currencyUSD"
+                      },
+                      {
+                        "id": "decimals",
+                        "value": 4
+                      },
+                      {
+                        "id": "custom.cellOptions",
+                        "value": {
+                          "mode": "gradient",
+                          "type": "gauge",
+                          "valueDisplayMode": "text"
+                        }
+                      },
+                      {
+                        "id": "color",
+                        "value": {
+                          "mode": "continuous-reds"
                         }
                       }
                     ]
@@ -918,36 +1003,6 @@
                         }
                       }
                     ]
-                  },
-                  {
-                    "matcher": {
-                      "id": "byName",
-                      "options": "$ Cost (24h)"
-                    },
-                    "properties": [
-                      {
-                        "id": "unit",
-                        "value": "currencyUSD"
-                      },
-                      {
-                        "id": "decimals",
-                        "value": 4
-                      },
-                      {
-                        "id": "custom.cellOptions",
-                        "value": {
-                          "mode": "gradient",
-                          "type": "gauge",
-                          "valueDisplayMode": "text"
-                        }
-                      },
-                      {
-                        "id": "color",
-                        "value": {
-                          "mode": "continuous-reds"
-                        }
-                      }
-                    ]
                   }
                 ]
               }
@@ -960,7 +1015,7 @@
         "spec": {
           "id": 7,
           "title": "Worst employees by waste (24h)",
-          "description": "Per-employee aggregate over the last 24h. **$ Wasted = $ Cost \u00d7 (1 \u2212 Avg Eval Score / 100)** \u2014 the composite of spend \u00d7 inefficiency. An employee who spends $5 at a score of 100 wastes $0; one who spends $1 at a score of 0 wastes $1. Sessions = distinct conversation_ids the employee opened in the window.",
+          "description": "Per-employee aggregate over the last 24h. Sessions = distinct conversation_ids the employee opened. Inner-joined: only employees with both a cost figure and at least one scored conversation appear.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -1037,7 +1092,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\"}[24h]))",
+                        "expr": "sum by (user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\"}[24h])) or sum by (user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",gen_ai_token_type=\"output\"}[24h])) * 0",
                         "format": "table",
                         "instant": true
                       }
@@ -1077,7 +1132,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\"}[24h])) * (1 - avg by (user_id) (conversation_eval_score{user_id=~\".+@acme.com\"}) / 100)",
+                        "expr": "(sum by (user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\"}[24h])) or sum by (user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",gen_ai_token_type=\"output\"}[24h])) * 0) * on(user_id) (1 - avg by (user_id) (conversation_eval_score{user_id=~\".+@acme.com\"}) / 100)",
                         "format": "table",
                         "instant": true
                       }
@@ -1094,7 +1149,7 @@
                   "spec": {
                     "options": {
                       "byField": "user_id",
-                      "mode": "outer"
+                      "mode": "inner"
                     }
                   }
                 },
@@ -1113,21 +1168,21 @@
                       },
                       "indexByName": {
                         "user_id": 0,
-                        "Value #waste": 1,
+                        "Value #cost": 1,
                         "Value #score": 2,
-                        "Value #sessions": 3,
-                        "Value #input": 4,
-                        "Value #output": 5,
-                        "Value #cost": 6
+                        "Value #waste": 3,
+                        "Value #sessions": 4,
+                        "Value #input": 5,
+                        "Value #output": 6
                       },
                       "renameByName": {
                         "user_id": "User",
-                        "Value #waste": "Wasted $$",
+                        "Value #cost": "$ Cost (24h)",
                         "Value #score": "Avg Eval Score",
+                        "Value #waste": "Wasted $$",
                         "Value #sessions": "Sessions",
                         "Value #input": "Input Tokens",
-                        "Value #output": "Output Tokens",
-                        "Value #cost": "$ Cost (24h)"
+                        "Value #output": "Output Tokens"
                       }
                     }
                   }
@@ -1208,7 +1263,7 @@
                   {
                     "matcher": {
                       "id": "byName",
-                      "options": "Wasted $$"
+                      "options": "$ Cost (24h)"
                     },
                     "properties": [
                       {
@@ -1243,7 +1298,7 @@
                     "properties": [
                       {
                         "id": "unit",
-                        "value": "short"
+                        "value": "percent"
                       },
                       {
                         "id": "decimals",
@@ -1283,6 +1338,36 @@
                               "color": "green"
                             }
                           ]
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "Wasted $$"
+                    },
+                    "properties": [
+                      {
+                        "id": "unit",
+                        "value": "currencyUSD"
+                      },
+                      {
+                        "id": "decimals",
+                        "value": 4
+                      },
+                      {
+                        "id": "custom.cellOptions",
+                        "value": {
+                          "mode": "gradient",
+                          "type": "gauge",
+                          "valueDisplayMode": "text"
+                        }
+                      },
+                      {
+                        "id": "color",
+                        "value": {
+                          "mode": "continuous-reds"
                         }
                       }
                     ]
@@ -1346,38 +1431,40 @@
                         }
                       }
                     ]
-                  },
-                  {
-                    "matcher": {
-                      "id": "byName",
-                      "options": "$ Cost (24h)"
-                    },
-                    "properties": [
-                      {
-                        "id": "unit",
-                        "value": "currencyUSD"
-                      },
-                      {
-                        "id": "decimals",
-                        "value": 4
-                      },
-                      {
-                        "id": "custom.cellOptions",
-                        "value": {
-                          "mode": "gradient",
-                          "type": "gauge",
-                          "valueDisplayMode": "text"
-                        }
-                      },
-                      {
-                        "id": "color",
-                        "value": {
-                          "mode": "continuous-reds"
-                        }
-                      }
-                    ]
                   }
                 ]
+              }
+            }
+          }
+        }
+      },
+      "panel-8": {
+        "kind": "Panel",
+        "spec": {
+          "id": 8,
+          "title": "",
+          "description": "",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [],
+              "transformations": [],
+              "queryOptions": {}
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "text",
+            "version": "13.1.0-25668120414",
+            "spec": {
+              "options": {
+                "mode": "markdown",
+                "content": "### How to read these tables\n\n**Wasted $$** = `Cost \u00d7 (1 \u2212 Eval Score / 100)`. It captures **both** axes of \"bad AI usage\" \u2014 spending money *and* not getting value for it.\n\n- An employee who spends **$100** with an eval score of **80%** \u2192 `$100 \u00d7 (1 \u2212 0.80)` = **$20 wasted**.\n- An employee who spends **$100** with an eval score of **0%** \u2192 `$100 \u00d7 (1 \u2212 0)` = **$100 wasted** \u2014 every dollar burned on bad AI use.\n- An employee at score **100%** wastes **$0** no matter how much they spend \u2014 perfect use of the AI budget.\n\nEval scores come from an Ollama-driven judge (qwen2.5:14b) running outside the LLM gateway. Both tables show only rows with full data \u2014 blank cells are filtered out."
+              },
+              "fieldConfig": {
+                "defaults": {},
+                "overrides": []
               }
             }
           }
@@ -1487,6 +1574,33 @@
                         "element": {
                           "kind": "ElementReference",
                           "name": "panel-5"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "kind": "RowsLayoutRow",
+            "spec": {
+              "title": "\ud83d\udcb0 Wasted spend \u2014 how to read it",
+              "collapse": false,
+              "layout": {
+                "kind": "GridLayout",
+                "spec": {
+                  "items": [
+                    {
+                      "kind": "GridLayoutItem",
+                      "spec": {
+                        "x": 0,
+                        "y": 0,
+                        "width": 24,
+                        "height": 6,
+                        "element": {
+                          "kind": "ElementReference",
+                          "name": "panel-8"
                         }
                       }
                     }
