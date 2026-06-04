@@ -77,35 +77,39 @@ class Settings:
         )
 
 
-# ── Metric (OTel gauge) ───────────────────────────────────────────────────────
-
+# ── Metric (OTel UpDownCounter — simulates a gauge) ──────────────────────────
+#
+# OTel-Python's observable gauges crash on OTLP/HTTP export because the
+# SDK attaches an Exemplar with span_id/trace_id=None (even with
+# OTEL_METRICS_EXEMPLAR_FILTER=always_off), which the proto encoder
+# rejects — same bug the loadgen orchestrator hit in 2026-05. The
+# workaround is to use an UpDownCounter (synchronous instrument, no
+# exemplar attachment) and emit the DELTA each time the score changes.
+# Prometheus sees a cumulative counter; the latest score is recoverable
+# via last_over_time(metric).
 _meter = metrics.get_meter("conversation_evaluator")
-# Use an observable gauge backed by an in-process dict so we can update it
-# from the poll loop and the OTel SDK will emit on each collection cycle.
+_score_counter = _meter.create_up_down_counter(
+    "conversation_eval_score",
+    description="0-100 AI-usage value score per conversation. Higher = better use of AI.",
+)
 _score_state: dict[tuple[str, str, str, str, str], float] = {}
 _reason_state: dict[tuple, str] = {}
 
 
-def _score_callback(_options):
-    from opentelemetry.metrics import Observation
-    for (session_id, conv_id, user_id, agent_name, model), score in _score_state.items():
-        yield Observation(
-            score,
-            attributes={
-                "session_id": session_id,
-                "conversation_id": conv_id,
-                "user_id": user_id,
-                "gen_ai.agent.name": agent_name,
-                "evaluator_model": model,
-            },
-        )
-
-
-_meter.create_observable_gauge(
-    "conversation_eval_score",
-    callbacks=[_score_callback],
-    description="0-100 AI-usage value score per conversation. Higher = better use of AI.",
-)
+def _emit_score(session_id: str, conversation_id: str, user_id: str,
+                 agent_name: str, model: str, score: float) -> None:
+    key = (session_id, conversation_id, user_id, agent_name, model)
+    delta = float(score) - _score_state.get(key, 0.0)
+    _score_state[key] = float(score)
+    attrs = {
+        "session_id": session_id,
+        "conversation_id": conversation_id,
+        "user_id": user_id,
+        "gen_ai.agent.name": agent_name,
+        "evaluator_model": model,
+    }
+    if delta != 0:
+        _score_counter.add(delta, attributes=attrs)
 
 
 # ── Evaluator prompt ──────────────────────────────────────────────────────────
@@ -300,18 +304,14 @@ class Evaluator:
             return
         score, reason = result
 
-        key = (
-            sid,
-            turn.get("conversation_id") or summary.get("conversation_id") or "",
-            turn.get("user_id") or summary.get("user_id") or "",
-            turn.get("agent_name") or summary.get("agent_name") or "",
-            self.settings.eval_model,
-        )
-        _score_state[key] = float(score)
-        _reason_state[key] = reason
+        conv_id = turn.get("conversation_id") or summary.get("conversation_id") or ""
+        uid = turn.get("user_id") or summary.get("user_id") or ""
+        agent = turn.get("agent_name") or summary.get("agent_name") or ""
+        _emit_score(sid, conv_id, uid, agent, self.settings.eval_model, float(score))
+        _reason_state[(sid, conv_id, uid, agent, self.settings.eval_model)] = reason
         self._scores_emitted += 1
         log.info("scored session=%s user=%s score=%d reason=%r",
-                 sid, key[2], score, reason[:120])
+                 sid, uid, score, reason[:120])
 
     def status(self) -> dict[str, Any]:
         return {
