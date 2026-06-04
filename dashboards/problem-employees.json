@@ -571,7 +571,7 @@
         "spec": {
           "id": 6,
           "title": "Top conversations by tokens (1h)",
-          "description": "Top SupportBot conversations by output tokens in the last hour. Anomaly bursts (sess_anomrun_* / sess_anomglut_*) bubble to the top \u2014 token-glutton bursts dominate the output column, runaway-loop bursts dominate input. The Cost column reads $0 for Ollama (no per-token pricing configured) and real $$ for Anthropic chats \u2014 that's the story.",
+          "description": "Top SupportBot conversations by output tokens in the last hour. Anomaly bursts (sess_anomrun_* / sess_anomglut_*) bubble to the top \u2014 token-glutton bursts dominate the output column, runaway-loop bursts dominate input. The Cost column reads $0 for Ollama (no per-token pricing configured) and real $$ for Anthropic chats. Click the Conversation cell to open it in AI o11y.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -588,7 +588,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"input\",user_id=~\".+@acme.com\"}[1h]))",
+                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"input\",user_id=~\".+@acme.com\"}[1h]))",
                         "format": "table",
                         "instant": true
                       }
@@ -608,7 +608,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"output\",user_id=~\".+@acme.com\"}[1h]))",
+                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"output\",user_id=~\".+@acme.com\"}[1h]))",
                         "format": "table",
                         "instant": true
                       }
@@ -657,21 +657,28 @@
                       "excludeByName": {
                         "Time 1": true,
                         "Time 2": true,
-                        "Time 3": true
+                        "Time 3": true,
+                        "user_id 2": true,
+                        "user_id 3": true,
+                        "conversation_id 2": true,
+                        "conversation_id 3": true,
+                        "conv_id": true
                       },
                       "indexByName": {
                         "session_id": 0,
-                        "user_id": 1,
+                        "user_id 1": 1,
                         "Value #input": 2,
                         "Value #output": 3,
-                        "Value #cost": 4
+                        "Value #cost": 4,
+                        "conversation_id 1": 5
                       },
                       "renameByName": {
                         "session_id": "Conversation",
-                        "user_id": "User",
+                        "user_id 1": "User",
                         "Value #input": "Input Tokens",
                         "Value #output": "Output Tokens",
-                        "Value #cost": "$ Cost (1h)"
+                        "Value #cost": "$ Cost (1h)",
+                        "conversation_id 1": "conv_id"
                       }
                     }
                   }
@@ -746,6 +753,16 @@
                       {
                         "id": "custom.align",
                         "value": "left"
+                      },
+                      {
+                        "id": "links",
+                        "value": [
+                          {
+                            "title": "Open in AI o11y (Sigil)",
+                            "url": "https://stephenwagner.grafana.net/a/grafana-sigil-app/conversations/${__data.fields.conv_id}/explore?conversationTitle=${__data.fields.Conversation}",
+                            "targetBlank": true
+                          }
+                        ]
                       }
                     ]
                   },

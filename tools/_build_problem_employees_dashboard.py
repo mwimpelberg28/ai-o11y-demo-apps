@@ -169,12 +169,25 @@ def table_panel(pid: int, title: str, description: str,
                 queries: list[tuple[str, str]],
                 join_field: str,
                 column_order: list[tuple[str, str]],  # (raw_field, display_name)
-                sort_by_display: str) -> dict:
+                sort_by_display: str,
+                hidden_columns: list[str] | None = None,
+                shared_label_fields: list[str] | None = None,
+                column_links: dict[str, list[dict]] | None = None) -> dict:
     """Build a v2 table panel that joins multiple instant queries on `join_field`.
 
     `queries` is a list of (refId, expr). Each query renders one Value #refId
-    column. `column_order` is the desired column ordering by raw name. The
+    column. `column_order` is the desired column ordering by raw name; the
     first column should usually be the join_field.
+
+    `shared_label_fields` lists labels that appear on EVERY query (e.g. user_id
+    when each query groups by both session_id and user_id). After joinByField,
+    those columns get suffixed " 1", " 2", ... — we keep " 1" renamed and drop
+    the rest.
+
+    `hidden_columns` is a list of (already-renamed) display names to hide via
+    excludeByName. Useful for fields that exist only to feed a data link.
+
+    `column_links` maps display name → list of {title, url, targetBlank} dicts.
     """
     panel_queries = []
     for ref, expr in queries:
@@ -193,10 +206,26 @@ def table_panel(pid: int, title: str, description: str,
             },
         })
 
-    index_by_name = {raw: i for i, (raw, _) in enumerate(column_order)}
-    rename_by_name = {raw: disp for raw, disp in column_order}
-    # Hide every Time # column produced by `format: table`.
+    # column_order may reference raw label names that, after joinByField,
+    # are suffixed with " 1" (the first query's copy). Build the rename map
+    # accordingly: if the raw name is in shared_label_fields, look for
+    # "<raw> 1" instead of "<raw>".
+    shared = set(shared_label_fields or [])
+    index_by_name = {}
+    rename_by_name = {}
+    for i, (raw, disp) in enumerate(column_order):
+        key = f"{raw} 1" if raw in shared else raw
+        index_by_name[key] = i
+        rename_by_name[key] = disp
+
+    # Hide every Time # column produced by `format: table`, plus extra
+    # copies of shared-label columns (suffixes " 2", " 3", ...).
     exclude_by_name = {f"Time {i+1}": True for i in range(len(queries))}
+    for raw in shared:
+        for i in range(2, len(queries) + 1):
+            exclude_by_name[f"{raw} {i}"] = True
+    for hide in (hidden_columns or []):
+        exclude_by_name[hide] = True
 
     overrides = []
     for raw, disp in column_order:
@@ -223,12 +252,15 @@ def table_panel(pid: int, title: str, description: str,
                 ],
             })
         elif disp in ("Conversation", "User"):
+            props = [
+                {"id": "custom.width", "value": 280 if disp == "Conversation" else 220},
+                {"id": "custom.align", "value": "left"},
+            ]
+            if column_links and disp in column_links:
+                props.append({"id": "links", "value": column_links[disp]})
             overrides.append({
                 "matcher": {"id": "byName", "options": disp},
-                "properties": [
-                    {"id": "custom.width", "value": 280 if disp == "Conversation" else 220},
-                    {"id": "custom.align", "value": "left"},
-                ],
+                "properties": props,
             })
 
     return {
@@ -389,20 +421,35 @@ elements["panel-5"] = timeseries_panel(
 elements["panel-6"] = table_panel(
     6,
     "Top conversations by tokens (1h)",
-    "Top SupportBot conversations by output tokens in the last hour. Anomaly bursts (sess_anomrun_* / sess_anomglut_*) bubble to the top — token-glutton bursts dominate the output column, runaway-loop bursts dominate input. The Cost column reads $0 for Ollama (no per-token pricing configured) and real $$ for Anthropic chats — that's the story.",
+    "Top SupportBot conversations by output tokens in the last hour. Anomaly bursts (sess_anomrun_* / sess_anomglut_*) bubble to the top — token-glutton bursts dominate the output column, runaway-loop bursts dominate input. The Cost column reads $0 for Ollama (no per-token pricing configured) and real $$ for Anthropic chats. Click the Conversation cell to open it in AI o11y.",
     queries=[
-        ("input",  f'sum by (session_id, user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[1h]))'),
-        ("output", f'sum by (session_id, user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[1h]))'),
+        # user_id + conversation_id are present on every query so they need
+        # `shared_label_fields` handling to dedupe after joinByField.
+        # cost query does NOT carry conversation_id (cost metric currently
+        # lacks it), so it'd produce empty conversation_id 3 entries — fine,
+        # those are dropped by the shared-label dedupe.
+        ("input",  f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[1h]))'),
+        ("output", f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[1h]))'),
         ("cost",   f'sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[1h]))'),
     ],
     join_field="session_id",
+    shared_label_fields=["user_id", "conversation_id"],
     column_order=[
-        ("session_id",   "Conversation"),
-        ("user_id",      "User"),
-        ("Value #input", "Input Tokens"),
-        ("Value #output","Output Tokens"),
-        ("Value #cost",  "$ Cost (1h)"),
+        ("session_id",      "Conversation"),
+        ("user_id",         "User"),
+        ("Value #input",    "Input Tokens"),
+        ("Value #output",   "Output Tokens"),
+        ("Value #cost",     "$ Cost (1h)"),
+        ("conversation_id", "conv_id"),     # hidden — feeds the data link
     ],
+    hidden_columns=["conv_id"],
+    column_links={
+        "Conversation": [{
+            "title": "Open in AI o11y (Sigil)",
+            "url": "https://stephenwagner.grafana.net/a/grafana-sigil-app/conversations/${__data.fields.conv_id}/explore?conversationTitle=${__data.fields.Conversation}",
+            "targetBlank": True,
+        }],
+    },
     sort_by_display="Output Tokens",
 )
 

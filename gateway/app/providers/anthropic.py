@@ -448,6 +448,7 @@ async def generate(req: ProviderRequest, sigil_client: Any) -> ProviderResponse:
     record_cost(**_attrs, session_id=req.session_id or "", cost_usd=cost_usd)
     record_user_call(**_attrs)
     record_user_tokens(**_attrs, session_id=req.session_id or "",
+                       conversation_id=req.conversation_id or "",
                        input_tokens=input_tokens, output_tokens=output_tokens)
 
     # Build the assistant Message that goes into Generation.output so Sigil
