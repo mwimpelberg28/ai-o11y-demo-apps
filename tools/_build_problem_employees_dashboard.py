@@ -225,8 +225,11 @@ def table_panel(pid: int, title: str, description: str,
     for raw in shared:
         for i in range(2, len(queries) + 1):
             exclude_by_name[f"{raw} {i}"] = True
+    # excludeByName matches against the RAW field name (before rename), so
+    # if the caller passes a display name in hidden_columns, look up the raw.
+    disp_to_raw = {disp: raw for raw, disp in rename_by_name.items()}
     for hide in (hidden_columns or []):
-        exclude_by_name[hide] = True
+        exclude_by_name[disp_to_raw.get(hide, hide)] = True
 
     overrides = []
     for raw, disp in column_order:
@@ -460,7 +463,7 @@ elements["panel-6"] = table_panel(
         ("Value #score",    "Eval Score"),
         ("Value #input",    "Input Tokens"),
         ("Value #output",   "Output Tokens"),
-        ("Value #cost",     "$ Cost (1h)"),
+        ("Value #cost",     "$ Cost (24h)"),
         ("conversation_id", "conv_id"),     # hidden — feeds the data link
     ],
     hidden_columns=["conv_id"],

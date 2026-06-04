@@ -685,7 +685,7 @@
                         "conversation_id 2": true,
                         "conversation_id 3": true,
                         "conversation_id 4": true,
-                        "conv_id": true
+                        "conversation_id 1": true
                       },
                       "indexByName": {
                         "session_id": 0,
@@ -702,7 +702,7 @@
                         "Value #score": "Eval Score",
                         "Value #input": "Input Tokens",
                         "Value #output": "Output Tokens",
-                        "Value #cost": "$ Cost (1h)",
+                        "Value #cost": "$ Cost (24h)",
                         "conversation_id 1": "conv_id"
                       }
                     }
@@ -922,7 +922,7 @@
                   {
                     "matcher": {
                       "id": "byName",
-                      "options": "$ Cost (1h)"
+                      "options": "$ Cost (24h)"
                     },
                     "properties": [
                       {
