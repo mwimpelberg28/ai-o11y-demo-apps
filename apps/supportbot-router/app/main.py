@@ -75,6 +75,7 @@ class AskRequest(BaseModel):
     employee_name: str | None = None
     conversation_id: str | None = None
     session_id: str | None = None
+    preferred_provider: str | None = None
 
 
 def _normalise_domain(text: str) -> str:
@@ -128,6 +129,7 @@ async def ask(
             caller_type=caller_type,
             max_tokens=16,        # category name is short
             temperature=0.0,      # deterministic classification
+            preferred_provider=req.preferred_provider,
         )
     except httpx.HTTPError as e:
         log.warning("router classification gateway call failed: %s", e)

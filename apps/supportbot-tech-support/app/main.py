@@ -61,6 +61,7 @@ class ChatRequest(BaseModel):
     employee_name: str | None = None
     conversation_id: str | None = None
     session_id: str | None = None
+    preferred_provider: str | None = None
 
 
 @app.post("/chat")
@@ -92,6 +93,7 @@ async def chat(
             conversation_id=conv_id,
             user_id=employee,
             caller_type=caller_type,
+            preferred_provider=req.preferred_provider,
         )
     except httpx.HTTPError as e:
         log.warning("gateway call failed: %s", e)

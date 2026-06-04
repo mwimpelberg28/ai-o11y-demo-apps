@@ -480,6 +480,11 @@ SC_NC_GIFT = "neoncart-gift-finder"
 SC_NC_CHAT = "neoncart-chatbot"
 SC_NC_BOTH = "neoncart-both"
 SC_SB = "supportbot"
+SC_SB_ANOMALIES = "supportbot-anomalies"
+
+# Number of fixed SB users that anomaly scenarios rotate through. Stable
+# subset → "repeat offender" stories work for demos.
+ANOMALY_USERS_PER_POOL = 5
 
 
 class Orchestrator:
@@ -533,6 +538,17 @@ class Orchestrator:
             base_url=self.settings.sb_base_url,
             users_payload=self.pool.sb,
             sessions_per_hour=self.settings.sb_sessions_per_hour,
+        ))
+        # SB anomalies — one "problem" run every 10 min against a fixed
+        # subset of 5 employees. The script self-paces; sessions_per_hour
+        # is informational only here.
+        self.supervisor.register(Scenario(
+            name=SC_SB_ANOMALIES,
+            script_filename="supportbot-anomalies.js",
+            base_url_env="SB_BASE_URL",
+            base_url=self.settings.sb_base_url,
+            users_payload=self.pool.sb[:ANOMALY_USERS_PER_POOL],
+            sessions_per_hour=6,
         ))
 
     @staticmethod

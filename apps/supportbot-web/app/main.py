@@ -72,6 +72,10 @@ class AskRequest(BaseModel):
     employee_name: str | None = None
     conversation_id: str | None = None
     session_id: str | None = None
+    # Synthetic-only hint forwarded straight to the gateway. Loadgen
+    # anomaly scenarios use it to pin runaway/token-glutton bursts to
+    # Ollama so they don't burn the Claude cap.
+    preferred_provider: str | None = None
 
 
 def _caller_type(header_value: str | None) -> str:
