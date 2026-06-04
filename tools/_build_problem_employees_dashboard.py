@@ -262,6 +262,23 @@ def table_panel(pid: int, title: str, description: str,
                 "matcher": {"id": "byName", "options": disp},
                 "properties": props,
             })
+        elif "Score" in disp:
+            overrides.append({
+                "matcher": {"id": "byName", "options": disp},
+                "properties": [
+                    {"id": "unit", "value": "short"},
+                    {"id": "decimals", "value": 0},
+                    {"id": "min", "value": 0},
+                    {"id": "max", "value": 100},
+                    {"id": "custom.cellOptions",
+                     "value": {"mode": "gradient", "type": "gauge", "valueDisplayMode": "text"}},
+                    {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                        {"value": 0,  "color": "red"},
+                        {"value": 50, "color": "orange"},
+                        {"value": 75, "color": "green"},
+                    ]}},
+                ],
+            })
 
     return {
         "kind": "Panel",
@@ -425,18 +442,21 @@ elements["panel-6"] = table_panel(
     queries=[
         # user_id + conversation_id are present on every query so they need
         # `shared_label_fields` handling to dedupe after joinByField.
-        # cost query does NOT carry conversation_id (cost metric currently
-        # lacks it), so it'd produce empty conversation_id 3 entries — fine,
-        # those are dropped by the shared-label dedupe.
+        # cost + score queries do NOT carry conversation_id (those metrics lack
+        # it), so dedupe drops the empty suffixed copies.
         ("input",  f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[1h]))'),
         ("output", f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[1h]))'),
         ("cost",   f'sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[1h]))'),
+        # Eval score: instant gauge from the conversation-evaluator service.
+        # Missing for un-scored sessions — they render with empty Score cell.
+        ("score",  f'max by (session_id, user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}})'),
     ],
     join_field="session_id",
     shared_label_fields=["user_id", "conversation_id"],
     column_order=[
         ("session_id",      "Conversation"),
         ("user_id",         "User"),
+        ("Value #score",    "Eval Score"),
         ("Value #input",    "Input Tokens"),
         ("Value #output",   "Output Tokens"),
         ("Value #cost",     "$ Cost (1h)"),

@@ -1,0 +1,18 @@
+{{- if .Values.conversationEvaluator.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: conversation-evaluator
+  namespace: conversation-evaluator
+  labels:
+    {{- include "aio11y.labels" "conversation-evaluator" | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "aio11y.selectorLabels" "conversation-evaluator" | nindent 4 }}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+{{- end }}

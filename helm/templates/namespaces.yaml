@@ -1,4 +1,4 @@
-{{- range list "k6-loadgen" "neoncart" "support-bot" "ai-o11y-postgres" "llm-gateway" }}
+{{- range list "k6-loadgen" "neoncart" "support-bot" "ai-o11y-postgres" "llm-gateway" "conversation-evaluator" }}
 apiVersion: v1
 kind: Namespace
 metadata:

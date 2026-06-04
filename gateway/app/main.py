@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
@@ -33,6 +35,55 @@ from .sigil_client import init_sigil, shutdown_sigil, get_sigil
 # story coherent — a flaky Ollama backend doesn't blank out the chatbot UX.
 # Set FALLBACK_ON_PROVIDER_ERROR=0 to disable.
 _FALLBACK_ENABLED = os.getenv("FALLBACK_ON_PROVIDER_ERROR", "1") != "0"
+
+# ── In-memory session cache (for the conversation-evaluator service) ─────────
+#
+# Tracks the latest user/assistant turn per session_id plus running totals.
+# Bounded LRU; safe for the demo's single gateway replica. The
+# conversation-evaluator polls /api/sessions/recent then GET /api/sessions/
+# <sid>/latest-turn to score the highest-volume conversations.
+_SESSIONS_MAX = int(os.getenv("SESSIONS_CACHE_MAX", "2000"))
+_SESSION_MSG_TRUNC = int(os.getenv("SESSION_MSG_TRUNC_CHARS", "8192"))
+_sessions_cache: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
+
+
+def _record_session_turn(req: "ChatRequest", resp_content: str,
+                         input_tokens: int, output_tokens: int,
+                         cost_usd: float, provider: str, model: str) -> None:
+    """Update the in-memory session cache with one new turn."""
+    sid = req.session_id or ""
+    if not sid:
+        return
+    last_user = ""
+    for m in reversed(req.messages):
+        if m.role == "user":
+            last_user = str(m.content or "")
+            break
+
+    entry = _sessions_cache.get(sid) or {
+        "session_id": sid,
+        "user_id": req.user_id or "",
+        "conversation_id": req.conversation_id or "",
+        "agent_name": req.agent_name or "",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cost_usd": 0.0,
+        "calls": 0,
+        "first_ts": time.time(),
+    }
+    entry["latest_user_message"] = last_user[:_SESSION_MSG_TRUNC]
+    entry["assistant_response"] = (resp_content or "")[:_SESSION_MSG_TRUNC]
+    entry["input_tokens"] += int(input_tokens or 0)
+    entry["output_tokens"] += int(output_tokens or 0)
+    entry["cost_usd"] += float(cost_usd or 0.0)
+    entry["calls"] += 1
+    entry["last_ts"] = time.time()
+    entry["last_provider"] = provider
+    entry["last_model"] = model
+    _sessions_cache[sid] = entry
+    _sessions_cache.move_to_end(sid)
+    while len(_sessions_cache) > _SESSIONS_MAX:
+        _sessions_cache.popitem(last=False)
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -229,6 +280,16 @@ async def generate(
     # Record spend against the cap (whichever provider actually served the call)
     caps.record_spend(provider_name, resp.cost_usd, caller_type=caller_type)
 
+    # Cache the turn for the conversation-evaluator.
+    _record_session_turn(
+        req, resp.content,
+        input_tokens=resp.input_tokens,
+        output_tokens=resp.output_tokens,
+        cost_usd=resp.cost_usd,
+        provider=resp.provider or provider_name,
+        model=resp.model or "",
+    )
+
     return {
         "content": resp.content,
         "provider": resp.provider,
@@ -246,4 +307,60 @@ async def generate(
         "response_id": resp.response_id,
         "generation_id": resp.generation_id,
         "caller_type": caller_type,
+    }
+
+
+# ── Session-introspection endpoints (used by conversation-evaluator) ─────────
+
+@app.get("/api/sessions/recent")
+def list_recent_sessions(
+    limit: int = 5,
+    sort: str = "output_tokens",
+    user_filter: str | None = None,
+):
+    """Return up-to-`limit` sessions ranked by `sort`.
+
+    sort ∈ {output_tokens, input_tokens, cost_usd, calls, last_ts}.
+    Optional user_filter is a substring matched against user_id (e.g. "@acme.com").
+    """
+    if sort not in ("output_tokens", "input_tokens", "cost_usd", "calls", "last_ts"):
+        raise HTTPException(400, f"unsupported sort: {sort}")
+    rows = list(_sessions_cache.values())
+    if user_filter:
+        rows = [r for r in rows if user_filter in (r.get("user_id") or "")]
+    rows.sort(key=lambda r: r.get(sort, 0) or 0, reverse=True)
+    out = []
+    for r in rows[: max(1, min(limit, 100))]:
+        out.append({
+            "session_id": r["session_id"],
+            "user_id": r.get("user_id", ""),
+            "conversation_id": r.get("conversation_id", ""),
+            "agent_name": r.get("agent_name", ""),
+            "input_tokens": r.get("input_tokens", 0),
+            "output_tokens": r.get("output_tokens", 0),
+            "cost_usd": round(r.get("cost_usd", 0.0), 6),
+            "calls": r.get("calls", 0),
+            "last_ts": r.get("last_ts", 0),
+        })
+    return {"sessions": out, "total_tracked": len(_sessions_cache)}
+
+
+@app.get("/api/sessions/{session_id}/latest-turn")
+def get_session_latest_turn(session_id: str):
+    """Return the cached latest user/assistant turn for a session."""
+    entry = _sessions_cache.get(session_id)
+    if entry is None:
+        raise HTTPException(404, "session not cached")
+    return {
+        "session_id": entry["session_id"],
+        "user_id": entry.get("user_id", ""),
+        "conversation_id": entry.get("conversation_id", ""),
+        "agent_name": entry.get("agent_name", ""),
+        "latest_user_message": entry.get("latest_user_message", ""),
+        "assistant_response": entry.get("assistant_response", ""),
+        "input_tokens": entry.get("input_tokens", 0),
+        "output_tokens": entry.get("output_tokens", 0),
+        "cost_usd": round(entry.get("cost_usd", 0.0), 6),
+        "calls": entry.get("calls", 0),
+        "last_ts": entry.get("last_ts", 0),
     }

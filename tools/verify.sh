@@ -17,6 +17,7 @@ NAMESPACES=(
   "llm-gateway"
   "ai-o11y-postgres"
   "k6-loadgen"
+  "conversation-evaluator"
 )
 
 # ── 1. Prereqs ────────────────────────────────────────────────────────────────

@@ -286,6 +286,33 @@ loadgen:
   usersYamlPath: config/users.yaml
 
 # =============================================================================
+# conversation-evaluator — Ollama-driven scoring of the highest-volume
+# SupportBot conversations. Polls the gateway's in-memory session cache and
+# emits conversation_eval_score{session_id, conversation_id, user_id, ...}.
+# Bypasses the llm-gateway entirely (separate Ollama call, no cap).
+# =============================================================================
+conversationEvaluator:
+  enabled: true
+  resources:
+    requests: {cpu: 50m,  memory: 128Mi}
+    limits:   {cpu: 500m, memory: 256Mi}
+  # Ollama model that runs the eval. Should be tool-less but reasonably
+  # strong at JSON output + judgement. qwen2.5:14b balances cost vs quality
+  # on the home GPU; bump to qwen2.5:32b for a "more strict judge" demo.
+  evalModel: qwen2.5:14b
+  pollIntervalSec: 60
+  topN: 5
+  # Substring matched against user_id at the gateway. Default scopes the
+  # evaluator to SupportBot's acme.com employees so it doesn't burn the
+  # GPU on NeonCart shoppers.
+  userFilter: "@acme.com"
+  # Sort key from the gateway /api/sessions/recent endpoint. Defaults to
+  # output_tokens because the demo's token-glutton anomaly dominates that
+  # column and Ollama-pinned bursts have $0 cost (cost_usd would miss them).
+  sortBy: output_tokens
+  ollamaTimeoutSec: 120
+
+# =============================================================================
 # Optional Ingress for exposing neoncart-web + supportbot-web at public hostnames.
 # =============================================================================
 # Off by default. Enable when you have an Ingress controller (Traefik, nginx,

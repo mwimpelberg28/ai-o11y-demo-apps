@@ -65,6 +65,9 @@ jobs:
           - name: loadgen
             context: loadgen
             image: loadgen
+          - name: conversation-evaluator
+            context: apps/conversation-evaluator
+            image: conversation-evaluator
 
     steps:
       - name: Checkout

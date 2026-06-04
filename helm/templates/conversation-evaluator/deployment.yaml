@@ -1,0 +1,63 @@
+{{- if .Values.conversationEvaluator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: conversation-evaluator
+  namespace: conversation-evaluator
+  labels:
+    {{- include "aio11y.labels" "conversation-evaluator" | nindent 4 }}
+spec:
+  # Stateful (in-memory score cache). Don't scale beyond 1.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "aio11y.selectorLabels" "conversation-evaluator" | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "aio11y.labels" "conversation-evaluator" | nindent 8 }}
+    spec:
+      containers:
+        - name: conversation-evaluator
+          image: {{ include "aio11y.image" (list $ "conversation-evaluator") }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            {{- include "aio11y.envOtelSigil" (list $ "conversation-evaluator") | nindent 12 }}
+            {{- include "aio11y.envGatewayUrl" . | nindent 12 }}
+            - name: PORT
+              value: "8000"
+            - name: OLLAMA_BASE_URL
+              value: {{ .Values.global.ollama.baseUrl | quote }}
+            - name: EVAL_MODEL
+              value: {{ .Values.conversationEvaluator.evalModel | quote }}
+            - name: POLL_INTERVAL_SEC
+              value: {{ .Values.conversationEvaluator.pollIntervalSec | quote }}
+            - name: TOP_N
+              value: {{ .Values.conversationEvaluator.topN | quote }}
+            - name: USER_FILTER
+              value: {{ .Values.conversationEvaluator.userFilter | quote }}
+            - name: SORT_BY
+              value: {{ .Values.conversationEvaluator.sortBy | quote }}
+            - name: OLLAMA_TIMEOUT_SEC
+              value: {{ .Values.conversationEvaluator.ollamaTimeoutSec | quote }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.conversationEvaluator.resources | nindent 12 }}
+{{- end }}
