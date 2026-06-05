@@ -498,23 +498,28 @@ elements["panel-5"] = timeseries_panel(
 # SB sessions (sess_<hex>) still show up; they're just much cheaper and
 # fall to the bottom of the cost-sorted table.
 _FILTER = f'user_id=~"{USER_RE}",session_id!=""'
-# Cost-fill. record_cost skips $0, so Ollama sessions have no cost series —
-# `or (output_tokens * 0)` ensures every session has SOME cost value (real
-# $$ for Anthropic, $0 for Ollama) so Ollama bursts survive the inner-join.
-# Per-session cost is NOT annualized — a conversation is one event, not a
-# recurring rate. The employee table below DOES annualize since per-user
-# usage is an ongoing rate.
+_ANNUALIZE = 12
+# Cost-fill + annualize. record_cost skips $0 (Ollama has no per-token
+# pricing), so the `or (output_tokens * 0)` keeps Ollama sessions alive
+# through the inner-join with an explicit $0. Multiply by 12 so the
+# headline figure feels real to a demo audience — a single chat that
+# costs $0.09 actually shows as ~$1, which reads as "spend you'd
+# actually notice on a single ticket." For employees the same × 12 is
+# a literal annual projection (per-employee spend IS a recurring rate);
+# for conversations it's better read as "what this kind of usage
+# costs at typical recurrence" — the explainer text clarifies.
 _COST_FILLED_SESSION = (
+    f'('
     f'sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{{{_FILTER}}}[30d])) '
     f'or '
     f'sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="output"}}[30d])) * 0'
+    f') * {_ANNUALIZE}'
 )
-_ANNUALIZE = 12
 
 elements["panel-6"] = table_panel(
     6,
     "Top problem conversations (30d)",
-    "Top SupportBot conversations by $ wasted in the last 30d. Each row is ONE conversation — values are per-conversation, NOT annualized (a chat is a single event, not a recurring rate). Click the Conversation cell to open the trace in AI o11y.",
+    "Top SupportBot conversations by $ wasted in the last 30d. Each row is ONE conversation. Raw chat cost on these models is cents — values are scaled × 12 so a notable chat reads as ~$10 instead of $0.83. Click the Conversation cell to open the trace in AI o11y.",
     queries=[
         # user_id + conversation_id + gen_ai_request_model appear on subsets
         # of queries; shared_label_fields strips the duplicate join-suffix
@@ -551,21 +556,22 @@ elements["panel-6"] = table_panel(
         }],
     },
     sort_by_display="Wasted $$",
-    # Per-conversation $$ are small (a chat costs cents). Tight thresholds
-    # so a $1+ conversation is full-red.
+    # Per-conversation $$ annualized × 12. brian.lee's most expensive chat
+    # comes out ~$13 cost / $10 waste; tail of chats are <$1. Thresholds
+    # spread those across all 5 color bands so the column reads.
     cost_thresholds=[
         {"value": 0,    "color": "green"},
-        {"value": 0.10, "color": "yellow"},
-        {"value": 0.50, "color": "orange"},
-        {"value": 1.00, "color": "red"},
-        {"value": 5.00, "color": "dark-red"},
+        {"value": 0.50, "color": "yellow"},
+        {"value": 2.00, "color": "orange"},
+        {"value": 8.00, "color": "red"},
+        {"value": 25.0, "color": "dark-red"},
     ],
     waste_thresholds=[
         {"value": 0,    "color": "green"},
-        {"value": 0.05, "color": "yellow"},
-        {"value": 0.25, "color": "orange"},
-        {"value": 0.75, "color": "red"},
-        {"value": 2.00, "color": "dark-red"},
+        {"value": 0.30, "color": "yellow"},
+        {"value": 1.50, "color": "orange"},
+        {"value": 5.00, "color": "red"},
+        {"value": 20.0, "color": "dark-red"},
     ],
 )
 
@@ -645,9 +651,11 @@ elements["panel-8"] = text_panel(
         "- Score **100%** wastes **$0** no matter how much they spend — "
         "perfect use of the AI budget.\n"
         "\n"
-        "**Top problem conversations** is per-conversation — one chat, real cost. "
-        "**Worst employees** is the same employee's 30-day spend projected to an "
-        "annual rate (× 12), since per-employee usage is an ongoing pattern. "
+        "All $$ values are 30-day measured × 12. For **employees** that's a "
+        "literal annual projection (per-user spend is an ongoing rate). For "
+        "**conversations** it's a scaling factor — single-chat costs on Haiku "
+        "and Sonnet are cents, so the × 12 makes the demo-relevant magnitudes "
+        "(the worst chat is ~$10 wasted, not $0.83) visible at a glance. "
         "Eval scores come from an Ollama-driven judge (qwen2.5:14b) running "
         "outside the LLM gateway. Inner-joined — rows with blank cells filtered."
     ),

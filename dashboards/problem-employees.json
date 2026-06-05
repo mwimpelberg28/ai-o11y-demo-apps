@@ -571,7 +571,7 @@
         "spec": {
           "id": 6,
           "title": "Top problem conversations (30d)",
-          "description": "Top SupportBot conversations by $ wasted in the last 30d. Each row is ONE conversation \u2014 values are per-conversation, NOT annualized (a chat is a single event, not a recurring rate). Click the Conversation cell to open the trace in AI o11y.",
+          "description": "Top SupportBot conversations by $ wasted in the last 30d. Each row is ONE conversation. Raw chat cost on these models is cents \u2014 values are scaled \u00d7 12 so a notable chat reads as ~$10 instead of $0.83. Click the Conversation cell to open the trace in AI o11y.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -628,7 +628,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\",session_id!=\"\"}[30d])) or sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[30d])) * 0",
+                        "expr": "(sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\",session_id!=\"\"}[30d])) or sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[30d])) * 0) * 12",
                         "format": "table",
                         "instant": true
                       }
@@ -668,7 +668,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "(sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\",session_id!=\"\"}[30d])) or sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[30d])) * 0) * on(session_id, user_id) (1 - max by (session_id, user_id) (conversation_eval_score{user_id=~\".+@acme.com\"}) / 100)",
+                        "expr": "((sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\",session_id!=\"\"}[30d])) or sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[30d])) * 0) * 12) * on(session_id, user_id) (1 - max by (session_id, user_id) (conversation_eval_score{user_id=~\".+@acme.com\"}) / 100)",
                         "format": "table",
                         "instant": true
                       }
@@ -700,10 +700,6 @@
                         "Time 3": true,
                         "Time 4": true,
                         "Time 5": true,
-                        "gen_ai_request_model 2": true,
-                        "gen_ai_request_model 3": true,
-                        "gen_ai_request_model 4": true,
-                        "gen_ai_request_model 5": true,
                         "user_id 2": true,
                         "user_id 3": true,
                         "user_id 4": true,
@@ -712,6 +708,10 @@
                         "conversation_id 3": true,
                         "conversation_id 4": true,
                         "conversation_id 5": true,
+                        "gen_ai_request_model 2": true,
+                        "gen_ai_request_model 3": true,
+                        "gen_ai_request_model 4": true,
+                        "gen_ai_request_model 5": true,
                         "conversation_id 1": true
                       },
                       "indexByName": {
@@ -879,19 +879,19 @@
                               "color": "green"
                             },
                             {
-                              "value": 0.1,
+                              "value": 0.5,
                               "color": "yellow"
                             },
                             {
-                              "value": 0.5,
+                              "value": 2.0,
                               "color": "orange"
                             },
                             {
-                              "value": 1.0,
+                              "value": 8.0,
                               "color": "red"
                             },
                             {
-                              "value": 5.0,
+                              "value": 25.0,
                               "color": "dark-red"
                             }
                           ]
@@ -992,19 +992,19 @@
                               "color": "green"
                             },
                             {
-                              "value": 0.05,
+                              "value": 0.3,
                               "color": "yellow"
                             },
                             {
-                              "value": 0.25,
+                              "value": 1.5,
                               "color": "orange"
                             },
                             {
-                              "value": 0.75,
+                              "value": 5.0,
                               "color": "red"
                             },
                             {
-                              "value": 2.0,
+                              "value": 20.0,
                               "color": "dark-red"
                             }
                           ]
@@ -1606,7 +1606,7 @@
             "spec": {
               "options": {
                 "mode": "markdown",
-                "content": "### How to read these tables\n\n**Wasted $$** = `Cost \u00d7 (1 \u2212 Eval Score / 100)`. It captures **both** axes of \"bad AI usage\" \u2014 spending money *and* not getting value for it.\n\n- Spend **$100** with an eval score of **80%** \u2192 `$100 \u00d7 (1 \u2212 0.80)` = **$20 wasted**.\n- Spend **$100** with an eval score of **0%** \u2192 `$100 \u00d7 (1 \u2212 0)` = **$100 wasted** \u2014 every dollar burned.\n- Score **100%** wastes **$0** no matter how much they spend \u2014 perfect use of the AI budget.\n\n**Top problem conversations** is per-conversation \u2014 one chat, real cost. **Worst employees** is the same employee's 30-day spend projected to an annual rate (\u00d7 12), since per-employee usage is an ongoing pattern. Eval scores come from an Ollama-driven judge (qwen2.5:14b) running outside the LLM gateway. Inner-joined \u2014 rows with blank cells filtered."
+                "content": "### How to read these tables\n\n**Wasted $$** = `Cost \u00d7 (1 \u2212 Eval Score / 100)`. It captures **both** axes of \"bad AI usage\" \u2014 spending money *and* not getting value for it.\n\n- Spend **$100** with an eval score of **80%** \u2192 `$100 \u00d7 (1 \u2212 0.80)` = **$20 wasted**.\n- Spend **$100** with an eval score of **0%** \u2192 `$100 \u00d7 (1 \u2212 0)` = **$100 wasted** \u2014 every dollar burned.\n- Score **100%** wastes **$0** no matter how much they spend \u2014 perfect use of the AI budget.\n\nAll $$ values are 30-day measured \u00d7 12. For **employees** that's a literal annual projection (per-user spend is an ongoing rate). For **conversations** it's a scaling factor \u2014 single-chat costs on Haiku and Sonnet are cents, so the \u00d7 12 makes the demo-relevant magnitudes (the worst chat is ~$10 wasted, not $0.83) visible at a glance. Eval scores come from an Ollama-driven judge (qwen2.5:14b) running outside the LLM gateway. Inner-joined \u2014 rows with blank cells filtered."
               },
               "fieldConfig": {
                 "defaults": {},
