@@ -24,8 +24,12 @@ import {
 
 const USERS = loadUsers();                  // already sliced to 5 by orchestrator
 const BASE = __ENV.SB_BASE_URL || 'http://sb-web.support-bot.svc.cluster.local';
-const INTERVAL_MIN_SEC = 300;               // 5 min lower bound
-const INTERVAL_MAX_SEC = 1200;              // 20 min upper bound
+// Target ~2 bursts per hour, randomly spaced. Each iteration sleeps a
+// random 20-40 min after finishing its burst, so on average ~30 min
+// elapses between successive starts (= 2/hr) with enough spread that
+// audiences don't see a metronome cadence on the dashboards.
+const INTERVAL_MIN_SEC = 1200;              // 20 min lower bound
+const INTERVAL_MAX_SEC = 2400;              // 40 min upper bound
 
 // Hex helper for tagged session IDs — same shape as _common.randSessionId
 // but with a problem-type prefix so the dashboard table can show it as
