@@ -491,8 +491,8 @@ elements["panel-9"] = stat_panel(
 
 elements["panel-10"] = stat_panel(
     10,
-    "🥇 Worst offender",
-    "Employee burning the most $$ on bad AI use this year (cost × inefficiency).",
+    "🥇 Top coaching target",
+    "Employee spending the most on low-value AI use this year (cost × inefficiency). Most impactful person to coach first — biggest waste recovery per intervention.",
     f'topk(1, {_PER_USER_WASTE})',
     unit="currencyUSD",
     decimals=2,
@@ -521,8 +521,8 @@ elements["panel-11"] = stat_panel(
 
 elements["panel-12"] = stat_panel(
     12,
-    "🚨 Problem employees",
-    "Count of acme.com employees whose average eval score is below 50% — chronic low-value AI users worth talking to.",
+    "💡 Coaching candidates",
+    "Count of acme.com employees whose average eval score is below 50% — folks who'd benefit most from a prompting workshop or training nudge.",
     f'count(avg by (user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}}) < 50) or vector(0)',
     unit="short",
     decimals=0,
@@ -687,8 +687,8 @@ _COST_FILLED_USER = (
 
 elements["panel-7"] = table_panel(
     7,
-    "Worst employees by waste (30d)",
-    "Per-employee aggregate over the last 24h. Sessions = distinct conversation_ids the employee opened. Inner-joined: only employees with both a cost figure and at least one scored conversation appear.",
+    "💡 AI coaching opportunities (30d)",
+    "Per-employee aggregate over the last 30d, ranked by $ wasted (cost × inefficiency). Frame these as people who could get more value from AI with better prompting — not a watchlist. Sessions = distinct conversation_ids the employee opened. Inner-joined: only employees with both a cost figure and at least one scored conversation appear.",
     queries=[
         ("sessions", f'count by (user_id) (count by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[30d])))'),
         ("input",    f'sum by (user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[30d]))'),
@@ -790,7 +790,7 @@ layout = {
             row("🧾 Top problem conversations (30d)", [
                 grid_item(0, 0, 24, 12, "panel-6"),
             ]),
-            row("🧑 Worst employees (30d)", [
+            row("💡 AI coaching opportunities (30d)", [
                 grid_item(0, 0, 24, 10, "panel-7"),
             ]),
         ],

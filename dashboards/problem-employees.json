@@ -141,8 +141,8 @@
         "kind": "Panel",
         "spec": {
           "id": 10,
-          "title": "\ud83e\udd47 Worst offender",
-          "description": "Employee burning the most $$ on bad AI use this year (cost \u00d7 inefficiency).",
+          "title": "\ud83e\udd47 Top coaching target",
+          "description": "Employee spending the most on low-value AI use this year (cost \u00d7 inefficiency). Most impactful person to coach first \u2014 biggest waste recovery per intervention.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -328,8 +328,8 @@
         "kind": "Panel",
         "spec": {
           "id": 12,
-          "title": "\ud83d\udea8 Problem employees",
-          "description": "Count of acme.com employees whose average eval score is below 50% \u2014 chronic low-value AI users worth talking to.",
+          "title": "\ud83d\udca1 Coaching candidates",
+          "description": "Count of acme.com employees whose average eval score is below 50% \u2014 folks who'd benefit most from a prompting workshop or training nudge.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -1085,6 +1085,10 @@
                         "Time 3": true,
                         "Time 4": true,
                         "Time 5": true,
+                        "user_id 2": true,
+                        "user_id 3": true,
+                        "user_id 4": true,
+                        "user_id 5": true,
                         "gen_ai_request_model 2": true,
                         "gen_ai_request_model 3": true,
                         "gen_ai_request_model 4": true,
@@ -1093,10 +1097,6 @@
                         "conversation_id 3": true,
                         "conversation_id 4": true,
                         "conversation_id 5": true,
-                        "user_id 2": true,
-                        "user_id 3": true,
-                        "user_id 4": true,
-                        "user_id 5": true,
                         "conversation_id 1": true
                       },
                       "indexByName": {
@@ -1475,8 +1475,8 @@
         "kind": "Panel",
         "spec": {
           "id": 7,
-          "title": "Worst employees by waste (30d)",
-          "description": "Per-employee aggregate over the last 24h. Sessions = distinct conversation_ids the employee opened. Inner-joined: only employees with both a cost figure and at least one scored conversation appear.",
+          "title": "\ud83d\udca1 AI coaching opportunities (30d)",
+          "description": "Per-employee aggregate over the last 30d, ranked by $ wasted (cost \u00d7 inefficiency). Frame these as people who could get more value from AI with better prompting \u2014 not a watchlist. Sessions = distinct conversation_ids the employee opened. Inner-joined: only employees with both a cost figure and at least one scored conversation appear.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -2236,7 +2236,7 @@
           {
             "kind": "RowsLayoutRow",
             "spec": {
-              "title": "\ud83e\uddd1 Worst employees (30d)",
+              "title": "\ud83d\udca1 AI coaching opportunities (30d)",
               "collapse": false,
               "layout": {
                 "kind": "GridLayout",
