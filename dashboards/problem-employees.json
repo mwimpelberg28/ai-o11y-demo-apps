@@ -571,7 +571,7 @@
         "spec": {
           "id": 6,
           "title": "Top problem conversations (30d)",
-          "description": "Top SupportBot conversations by $ wasted in the last 24h. Inner-joined: only conversations that have a cost figure AND have been scored by the evaluator appear (no blank cells). Click the Conversation cell to open the trace in AI o11y.",
+          "description": "Top SupportBot conversations by $ wasted in the last 30d. Each row is ONE conversation \u2014 values are per-conversation, NOT annualized (a chat is a single event, not a recurring rate). Click the Conversation cell to open the trace in AI o11y.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -588,7 +588,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"input\"}[30d]))",
+                        "expr": "sum by (session_id, user_id, conversation_id, gen_ai_request_model) (increase(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"input\"}[30d]))",
                         "format": "table",
                         "instant": true
                       }
@@ -628,7 +628,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "(sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\",session_id!=\"\"}[30d])) or sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[30d])) * 0) * 12",
+                        "expr": "sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\",session_id!=\"\"}[30d])) or sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[30d])) * 0",
                         "format": "table",
                         "instant": true
                       }
@@ -668,7 +668,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "((sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\",session_id!=\"\"}[30d])) or sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[30d])) * 0) * 12) * on(session_id, user_id) (1 - max by (session_id, user_id) (conversation_eval_score{user_id=~\".+@acme.com\"}) / 100)",
+                        "expr": "(sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\",session_id!=\"\"}[30d])) or sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[30d])) * 0) * on(session_id, user_id) (1 - max by (session_id, user_id) (conversation_eval_score{user_id=~\".+@acme.com\"}) / 100)",
                         "format": "table",
                         "instant": true
                       }
@@ -700,32 +700,38 @@
                         "Time 3": true,
                         "Time 4": true,
                         "Time 5": true,
-                        "conversation_id 2": true,
-                        "conversation_id 3": true,
-                        "conversation_id 4": true,
-                        "conversation_id 5": true,
+                        "gen_ai_request_model 2": true,
+                        "gen_ai_request_model 3": true,
+                        "gen_ai_request_model 4": true,
+                        "gen_ai_request_model 5": true,
                         "user_id 2": true,
                         "user_id 3": true,
                         "user_id 4": true,
                         "user_id 5": true,
+                        "conversation_id 2": true,
+                        "conversation_id 3": true,
+                        "conversation_id 4": true,
+                        "conversation_id 5": true,
                         "conversation_id 1": true
                       },
                       "indexByName": {
                         "session_id": 0,
                         "user_id 1": 1,
-                        "Value #cost": 2,
-                        "Value #score": 3,
-                        "Value #waste": 4,
-                        "Value #input": 5,
-                        "Value #output": 6,
-                        "conversation_id 1": 7
+                        "gen_ai_request_model 1": 2,
+                        "Value #cost": 3,
+                        "Value #score": 4,
+                        "Value #waste": 5,
+                        "Value #input": 6,
+                        "Value #output": 7,
+                        "conversation_id 1": 8
                       },
                       "renameByName": {
                         "session_id": "Conversation",
                         "user_id 1": "User",
-                        "Value #cost": "$ Cost / yr",
+                        "gen_ai_request_model 1": "Model",
+                        "Value #cost": "$ Cost",
                         "Value #score": "Eval Score",
-                        "Value #waste": "Wasted $$ / yr",
+                        "Value #waste": "Wasted $$",
                         "Value #input": "Input Tokens",
                         "Value #output": "Output Tokens",
                         "conversation_id 1": "conv_id"
@@ -742,7 +748,7 @@
                       "sort": [
                         {
                           "desc": true,
-                          "field": "Wasted $$ / yr"
+                          "field": "Wasted $$"
                         }
                       ]
                     }
@@ -763,7 +769,7 @@
                 "sortBy": [
                   {
                     "desc": true,
-                    "displayName": "Wasted $$ / yr"
+                    "displayName": "Wasted $$"
                   }
                 ]
               },
@@ -835,7 +841,7 @@
                   {
                     "matcher": {
                       "id": "byName",
-                      "options": "$ Cost / yr"
+                      "options": "$ Cost"
                     },
                     "properties": [
                       {
@@ -853,14 +859,42 @@
                       {
                         "id": "custom.cellOptions",
                         "value": {
-                          "mode": "gradient",
+                          "mode": "basic",
                           "type": "color-background"
                         }
                       },
                       {
                         "id": "color",
                         "value": {
-                          "mode": "continuous-YlOrRd"
+                          "mode": "thresholds"
+                        }
+                      },
+                      {
+                        "id": "thresholds",
+                        "value": {
+                          "mode": "absolute",
+                          "steps": [
+                            {
+                              "value": 0,
+                              "color": "green"
+                            },
+                            {
+                              "value": 0.1,
+                              "color": "yellow"
+                            },
+                            {
+                              "value": 0.5,
+                              "color": "orange"
+                            },
+                            {
+                              "value": 1.0,
+                              "color": "red"
+                            },
+                            {
+                              "value": 5.0,
+                              "color": "dark-red"
+                            }
+                          ]
                         }
                       }
                     ]
@@ -920,7 +954,7 @@
                   {
                     "matcher": {
                       "id": "byName",
-                      "options": "Wasted $$ / yr"
+                      "options": "Wasted $$"
                     },
                     "properties": [
                       {
@@ -938,7 +972,7 @@
                       {
                         "id": "custom.cellOptions",
                         "value": {
-                          "mode": "gradient",
+                          "mode": "basic",
                           "type": "color-background"
                         }
                       },
@@ -958,19 +992,19 @@
                               "color": "green"
                             },
                             {
-                              "value": 5,
+                              "value": 0.05,
                               "color": "yellow"
                             },
                             {
-                              "value": 25,
+                              "value": 0.25,
                               "color": "orange"
                             },
                             {
-                              "value": 100,
+                              "value": 0.75,
                               "color": "red"
                             },
                             {
-                              "value": 500,
+                              "value": 2.0,
                               "color": "dark-red"
                             }
                           ]
@@ -1219,9 +1253,9 @@
                       },
                       "renameByName": {
                         "user_id": "User",
-                        "Value #cost": "$ Cost / yr",
+                        "Value #cost": "$ Cost",
                         "Value #score": "Avg Eval Score",
-                        "Value #waste": "Wasted $$ / yr",
+                        "Value #waste": "Wasted $$",
                         "Value #sessions": "Sessions",
                         "Value #input": "Input Tokens",
                         "Value #output": "Output Tokens"
@@ -1238,7 +1272,7 @@
                       "sort": [
                         {
                           "desc": true,
-                          "field": "Wasted $$ / yr"
+                          "field": "Wasted $$"
                         }
                       ]
                     }
@@ -1259,7 +1293,7 @@
                 "sortBy": [
                   {
                     "desc": true,
-                    "displayName": "Wasted $$ / yr"
+                    "displayName": "Wasted $$"
                   }
                 ]
               },
@@ -1305,7 +1339,7 @@
                   {
                     "matcher": {
                       "id": "byName",
-                      "options": "$ Cost / yr"
+                      "options": "$ Cost"
                     },
                     "properties": [
                       {
@@ -1323,14 +1357,42 @@
                       {
                         "id": "custom.cellOptions",
                         "value": {
-                          "mode": "gradient",
+                          "mode": "basic",
                           "type": "color-background"
                         }
                       },
                       {
                         "id": "color",
                         "value": {
-                          "mode": "continuous-YlOrRd"
+                          "mode": "thresholds"
+                        }
+                      },
+                      {
+                        "id": "thresholds",
+                        "value": {
+                          "mode": "absolute",
+                          "steps": [
+                            {
+                              "value": 0,
+                              "color": "green"
+                            },
+                            {
+                              "value": 3,
+                              "color": "yellow"
+                            },
+                            {
+                              "value": 8,
+                              "color": "orange"
+                            },
+                            {
+                              "value": 15,
+                              "color": "red"
+                            },
+                            {
+                              "value": 40,
+                              "color": "dark-red"
+                            }
+                          ]
                         }
                       }
                     ]
@@ -1390,7 +1452,7 @@
                   {
                     "matcher": {
                       "id": "byName",
-                      "options": "Wasted $$ / yr"
+                      "options": "Wasted $$"
                     },
                     "properties": [
                       {
@@ -1408,7 +1470,7 @@
                       {
                         "id": "custom.cellOptions",
                         "value": {
-                          "mode": "gradient",
+                          "mode": "basic",
                           "type": "color-background"
                         }
                       },
@@ -1428,19 +1490,19 @@
                               "color": "green"
                             },
                             {
-                              "value": 5,
+                              "value": 2,
                               "color": "yellow"
                             },
                             {
-                              "value": 25,
+                              "value": 6,
                               "color": "orange"
                             },
                             {
-                              "value": 100,
+                              "value": 12,
                               "color": "red"
                             },
                             {
-                              "value": 500,
+                              "value": 30,
                               "color": "dark-red"
                             }
                           ]
@@ -1544,7 +1606,7 @@
             "spec": {
               "options": {
                 "mode": "markdown",
-                "content": "### How to read these tables\n\n**Wasted $$ / yr** = `Cost \u00d7 (1 \u2212 Eval Score / 100)`. It captures **both** axes of \"bad AI usage\" \u2014 spending money *and* not getting value for it.\n\n- Spend **$100/yr** with an eval score of **80%** \u2192 `$100 \u00d7 (1 \u2212 0.80)` = **$20 wasted**.\n- Spend **$100/yr** with an eval score of **0%** \u2192 `$100 \u00d7 (1 \u2212 0)` = **$100 wasted** \u2014 every dollar burned.\n- Score **100%** wastes **$0** no matter how much they spend \u2014 perfect use of the AI budget.\n\n**Why /yr?** The query measures the last 30 days then projects to an annual rate (\u00d7 12). At current usage patterns these are the yearly tabs. Eval scores come from an Ollama-driven judge (qwen2.5:14b) running outside the LLM gateway. Inner-joined \u2014 rows with blank cells are filtered out."
+                "content": "### How to read these tables\n\n**Wasted $$** = `Cost \u00d7 (1 \u2212 Eval Score / 100)`. It captures **both** axes of \"bad AI usage\" \u2014 spending money *and* not getting value for it.\n\n- Spend **$100** with an eval score of **80%** \u2192 `$100 \u00d7 (1 \u2212 0.80)` = **$20 wasted**.\n- Spend **$100** with an eval score of **0%** \u2192 `$100 \u00d7 (1 \u2212 0)` = **$100 wasted** \u2014 every dollar burned.\n- Score **100%** wastes **$0** no matter how much they spend \u2014 perfect use of the AI budget.\n\n**Top problem conversations** is per-conversation \u2014 one chat, real cost. **Worst employees** is the same employee's 30-day spend projected to an annual rate (\u00d7 12), since per-employee usage is an ongoing pattern. Eval scores come from an Ollama-driven judge (qwen2.5:14b) running outside the LLM gateway. Inner-joined \u2014 rows with blank cells filtered."
               },
               "fieldConfig": {
                 "defaults": {},

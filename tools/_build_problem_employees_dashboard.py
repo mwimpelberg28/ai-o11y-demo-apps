@@ -174,7 +174,9 @@ def table_panel(pid: int, title: str, description: str,
                 hidden_columns: list[str] | None = None,
                 shared_label_fields: list[str] | None = None,
                 column_links: dict[str, list[dict]] | None = None,
-                join_mode: str = "outer") -> dict:
+                join_mode: str = "outer",
+                cost_thresholds: list[dict] | None = None,
+                waste_thresholds: list[dict] | None = None) -> dict:
     """Build a v2 table panel that joins multiple instant queries on `join_field`.
 
     `queries` is a list of (refId, expr). Each query renders one Value #refId
@@ -233,11 +235,24 @@ def table_panel(pid: int, title: str, description: str,
         exclude_by_name[disp_to_raw.get(hide, hide)] = True
 
     overrides = []
+    # Defaults if the caller doesn't pass thresholds. Tuned for per-row
+    # employee annual figures ($1-50 range).
+    _default_waste = waste_thresholds or [
+        {"value": 0,    "color": "green"},
+        {"value": 2,    "color": "yellow"},
+        {"value": 7,    "color": "orange"},
+        {"value": 15,   "color": "red"},
+        {"value": 40,   "color": "dark-red"},
+    ]
+    _default_cost = cost_thresholds or [
+        {"value": 0,    "color": "green"},
+        {"value": 3,    "color": "yellow"},
+        {"value": 10,   "color": "orange"},
+        {"value": 25,   "color": "red"},
+        {"value": 75,   "color": "dark-red"},
+    ]
     for raw, disp in column_order:
         if "Wasted" in disp:
-            # Headline metric. color-background with thresholds (NOT continuous)
-            # so each row reads at a glance: green = fine, red = bad — instead of
-            # the whole column going solid red because everyone's "above the min".
             overrides.append({
                 "matcher": {"id": "byName", "options": disp},
                 "properties": [
@@ -245,15 +260,9 @@ def table_panel(pid: int, title: str, description: str,
                     {"id": "decimals", "value": 2},
                     {"id": "min", "value": 0},
                     {"id": "custom.cellOptions",
-                     "value": {"mode": "gradient", "type": "color-background"}},
+                     "value": {"mode": "basic", "type": "color-background"}},
                     {"id": "color", "value": {"mode": "thresholds"}},
-                    {"id": "thresholds", "value": {"mode": "absolute", "steps": [
-                        {"value": 0,     "color": "green"},
-                        {"value": 5,     "color": "yellow"},
-                        {"value": 25,    "color": "orange"},
-                        {"value": 100,   "color": "red"},
-                        {"value": 500,   "color": "dark-red"},
-                    ]}},
+                    {"id": "thresholds", "value": {"mode": "absolute", "steps": _default_waste}},
                 ],
             })
         elif "Cost" in disp or "$" in disp:
@@ -264,8 +273,9 @@ def table_panel(pid: int, title: str, description: str,
                     {"id": "decimals", "value": 2},
                     {"id": "min", "value": 0},
                     {"id": "custom.cellOptions",
-                     "value": {"mode": "gradient", "type": "color-background"}},
-                    {"id": "color", "value": {"mode": "continuous-YlOrRd"}},
+                     "value": {"mode": "basic", "type": "color-background"}},
+                    {"id": "color", "value": {"mode": "thresholds"}},
+                    {"id": "thresholds", "value": {"mode": "absolute", "steps": _default_cost}},
                 ],
             })
         elif "Token" in disp:
@@ -488,35 +498,31 @@ elements["panel-5"] = timeseries_panel(
 # SB sessions (sess_<hex>) still show up; they're just much cheaper and
 # fall to the bottom of the cost-sorted table.
 _FILTER = f'user_id=~"{USER_RE}",session_id!=""'
-# Cost-fill + annualize. record_cost skips $0, so Ollama sessions have
-# no cost series — `or (output_tokens * 0)` ensures every session has
-# SOME cost value (real $$ for Anthropic, $0 for Ollama) so Ollama
-# bursts survive the inner-join filter. The × 12 projects the 30d window
-# up to an annual rate, which makes the numbers feel real in a demo
-# ($0.97/month → $11.64/year) without changing what data we measure.
-_ANNUALIZE = 12
+# Cost-fill. record_cost skips $0, so Ollama sessions have no cost series —
+# `or (output_tokens * 0)` ensures every session has SOME cost value (real
+# $$ for Anthropic, $0 for Ollama) so Ollama bursts survive the inner-join.
+# Per-session cost is NOT annualized — a conversation is one event, not a
+# recurring rate. The employee table below DOES annualize since per-user
+# usage is an ongoing rate.
 _COST_FILLED_SESSION = (
-    f'('
     f'sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{{{_FILTER}}}[30d])) '
     f'or '
     f'sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="output"}}[30d])) * 0'
-    f') * {_ANNUALIZE}'
 )
+_ANNUALIZE = 12
 
 elements["panel-6"] = table_panel(
     6,
     "Top problem conversations (30d)",
-    "Top SupportBot conversations by $ wasted in the last 24h. Inner-joined: only conversations that have a cost figure AND have been scored by the evaluator appear (no blank cells). Click the Conversation cell to open the trace in AI o11y.",
+    "Top SupportBot conversations by $ wasted in the last 30d. Each row is ONE conversation — values are per-conversation, NOT annualized (a chat is a single event, not a recurring rate). Click the Conversation cell to open the trace in AI o11y.",
     queries=[
-        # user_id + conversation_id are present on every query so they need
-        # `shared_label_fields` handling to dedupe after joinByField.
-        ("input",  f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="input"}}[30d]))'),
+        # user_id + conversation_id + gen_ai_request_model appear on subsets
+        # of queries; shared_label_fields strips the duplicate join-suffix
+        # copies after joinByField.
+        ("input",  f'sum by (session_id, user_id, conversation_id, gen_ai_request_model) (increase(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="input"}}[30d]))'),
         ("output", f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="output"}}[30d]))'),
         ("cost",   _COST_FILLED_SESSION),
         ("score",  f'max by (session_id, user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}})'),
-        # Per-session Wasted $$ = cost * (1 - score/100). Vector-multiplied
-        # on (session_id, user_id). Ollama sessions get cost=0 from the fill
-        # above so their Wasted $$ is also 0 — correctly attributed.
         ("waste",  (
             f'({_COST_FILLED_SESSION}) '
             f'* on(session_id, user_id) (1 - max by (session_id, user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}}) / 100)'
@@ -524,16 +530,17 @@ elements["panel-6"] = table_panel(
     ],
     join_field="session_id",
     join_mode="inner",
-    shared_label_fields=["user_id", "conversation_id"],
+    shared_label_fields=["user_id", "conversation_id", "gen_ai_request_model"],
     column_order=[
-        ("session_id",      "Conversation"),
-        ("user_id",         "User"),
-        ("Value #cost",     "$ Cost / yr"),
-        ("Value #score",    "Eval Score"),
-        ("Value #waste",    "Wasted $$ / yr"),
-        ("Value #input",    "Input Tokens"),
-        ("Value #output",   "Output Tokens"),
-        ("conversation_id", "conv_id"),     # hidden — feeds the data link
+        ("session_id",            "Conversation"),
+        ("user_id",               "User"),
+        ("gen_ai_request_model",  "Model"),
+        ("Value #cost",           "$ Cost"),
+        ("Value #score",          "Eval Score"),
+        ("Value #waste",          "Wasted $$"),
+        ("Value #input",          "Input Tokens"),
+        ("Value #output",         "Output Tokens"),
+        ("conversation_id",       "conv_id"),     # hidden — feeds the data link
     ],
     hidden_columns=["conv_id"],
     column_links={
@@ -543,7 +550,23 @@ elements["panel-6"] = table_panel(
             "targetBlank": True,
         }],
     },
-    sort_by_display="Wasted $$ / yr",
+    sort_by_display="Wasted $$",
+    # Per-conversation $$ are small (a chat costs cents). Tight thresholds
+    # so a $1+ conversation is full-red.
+    cost_thresholds=[
+        {"value": 0,    "color": "green"},
+        {"value": 0.10, "color": "yellow"},
+        {"value": 0.50, "color": "orange"},
+        {"value": 1.00, "color": "red"},
+        {"value": 5.00, "color": "dark-red"},
+    ],
+    waste_thresholds=[
+        {"value": 0,    "color": "green"},
+        {"value": 0.05, "color": "yellow"},
+        {"value": 0.25, "color": "orange"},
+        {"value": 0.75, "color": "red"},
+        {"value": 2.00, "color": "dark-red"},
+    ],
 )
 
 # Row 5 table — worst employees (aggregate of conversations by user_id)
@@ -577,15 +600,31 @@ elements["panel-7"] = table_panel(
     join_mode="inner",
     column_order=[
         ("user_id",         "User"),
-        ("Value #cost",     "$ Cost / yr"),
+        ("Value #cost",     "$ Cost"),
         ("Value #score",    "Avg Eval Score"),
-        ("Value #waste",    "Wasted $$ / yr"),
+        ("Value #waste",    "Wasted $$"),
         ("Value #sessions", "Sessions"),
         ("Value #input",    "Input Tokens"),
         ("Value #output",   "Output Tokens"),
     ],
-    sort_by_display="Wasted $$ / yr",
+    sort_by_display="Wasted $$",
     sort_desc=True,  # most-wasteful first
+    # Annualized per-employee dollars span ~$8-$40 today. Tight thresholds
+    # so the visible spread maps to multiple color bands.
+    cost_thresholds=[
+        {"value": 0,    "color": "green"},
+        {"value": 3,    "color": "yellow"},
+        {"value": 8,    "color": "orange"},
+        {"value": 15,   "color": "red"},
+        {"value": 40,   "color": "dark-red"},
+    ],
+    waste_thresholds=[
+        {"value": 0,    "color": "green"},
+        {"value": 2,    "color": "yellow"},
+        {"value": 6,    "color": "orange"},
+        {"value": 12,   "color": "red"},
+        {"value": 30,   "color": "dark-red"},
+    ],
 )
 
 
@@ -596,21 +635,21 @@ elements["panel-8"] = text_panel(
     (
         "### How to read these tables\n"
         "\n"
-        "**Wasted $$ / yr** = `Cost × (1 − Eval Score / 100)`. It captures **both** "
+        "**Wasted $$** = `Cost × (1 − Eval Score / 100)`. It captures **both** "
         "axes of \"bad AI usage\" — spending money *and* not getting value for it.\n"
         "\n"
-        "- Spend **$100/yr** with an eval score of **80%** → "
+        "- Spend **$100** with an eval score of **80%** → "
         "`$100 × (1 − 0.80)` = **$20 wasted**.\n"
-        "- Spend **$100/yr** with an eval score of **0%** → "
+        "- Spend **$100** with an eval score of **0%** → "
         "`$100 × (1 − 0)` = **$100 wasted** — every dollar burned.\n"
         "- Score **100%** wastes **$0** no matter how much they spend — "
         "perfect use of the AI budget.\n"
         "\n"
-        "**Why /yr?** The query measures the last 30 days then projects to an "
-        "annual rate (× 12). At current usage patterns these are the yearly "
-        "tabs. Eval scores come from an Ollama-driven judge (qwen2.5:14b) "
-        "running outside the LLM gateway. Inner-joined — rows with blank "
-        "cells are filtered out."
+        "**Top problem conversations** is per-conversation — one chat, real cost. "
+        "**Worst employees** is the same employee's 30-day spend projected to an "
+        "annual rate (× 12), since per-employee usage is an ongoing pattern. "
+        "Eval scores come from an Ollama-driven judge (qwen2.5:14b) running "
+        "outside the LLM gateway. Inner-joined — rows with blank cells filtered."
     ),
 )
 
