@@ -570,7 +570,7 @@
         "kind": "Panel",
         "spec": {
           "id": 6,
-          "title": "Top problem conversations (24h)",
+          "title": "Top problem conversations (30d)",
           "description": "Top SupportBot conversations by $ wasted in the last 24h. Inner-joined: only conversations that have a cost figure AND have been scored by the evaluator appear (no blank cells). Click the Conversation cell to open the trace in AI o11y.",
           "links": [],
           "data": {
@@ -588,7 +588,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"input\"}[24h]))",
+                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"input\"}[30d]))",
                         "format": "table",
                         "instant": true
                       }
@@ -608,7 +608,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[24h]))",
+                        "expr": "sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[30d]))",
                         "format": "table",
                         "instant": true
                       }
@@ -628,7 +628,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\",session_id!=\"\"}[24h])) or sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[24h])) * 0",
+                        "expr": "sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\",session_id!=\"\"}[30d])) or sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[30d])) * 0",
                         "format": "table",
                         "instant": true
                       }
@@ -668,7 +668,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "(sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\",session_id!=\"\"}[24h])) or sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[24h])) * 0) * on(session_id, user_id) (1 - max by (session_id, user_id) (conversation_eval_score{user_id=~\".+@acme.com\"}) / 100)",
+                        "expr": "(sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\",session_id!=\"\"}[30d])) or sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",session_id!=\"\",gen_ai_token_type=\"output\"}[30d])) * 0) * on(session_id, user_id) (1 - max by (session_id, user_id) (conversation_eval_score{user_id=~\".+@acme.com\"}) / 100)",
                         "format": "table",
                         "instant": true
                       }
@@ -700,14 +700,14 @@
                         "Time 3": true,
                         "Time 4": true,
                         "Time 5": true,
-                        "conversation_id 2": true,
-                        "conversation_id 3": true,
-                        "conversation_id 4": true,
-                        "conversation_id 5": true,
                         "user_id 2": true,
                         "user_id 3": true,
                         "user_id 4": true,
                         "user_id 5": true,
+                        "conversation_id 2": true,
+                        "conversation_id 3": true,
+                        "conversation_id 4": true,
+                        "conversation_id 5": true,
                         "conversation_id 1": true
                       },
                       "indexByName": {
@@ -723,7 +723,7 @@
                       "renameByName": {
                         "session_id": "Conversation",
                         "user_id 1": "User",
-                        "Value #cost": "$ Cost (24h)",
+                        "Value #cost": "$ Cost (30d)",
                         "Value #score": "Eval Score",
                         "Value #waste": "Wasted $$",
                         "Value #input": "Input Tokens",
@@ -835,7 +835,7 @@
                   {
                     "matcher": {
                       "id": "byName",
-                      "options": "$ Cost (24h)"
+                      "options": "$ Cost (30d)"
                     },
                     "properties": [
                       {
@@ -847,11 +847,14 @@
                         "value": 4
                       },
                       {
+                        "id": "min",
+                        "value": 0
+                      },
+                      {
                         "id": "custom.cellOptions",
                         "value": {
                           "mode": "gradient",
-                          "type": "gauge",
-                          "valueDisplayMode": "text"
+                          "type": "color-background"
                         }
                       },
                       {
@@ -929,17 +932,21 @@
                         "value": 4
                       },
                       {
+                        "id": "min",
+                        "value": 0
+                      },
+                      {
                         "id": "custom.cellOptions",
                         "value": {
                           "mode": "gradient",
-                          "type": "gauge",
-                          "valueDisplayMode": "text"
+                          "type": "color-background"
                         }
                       },
                       {
                         "id": "color",
                         "value": {
-                          "mode": "continuous-reds"
+                          "mode": "continuous-RdYlGr",
+                          "reverse": true
                         }
                       }
                     ]
@@ -956,6 +963,10 @@
                       },
                       {
                         "id": "decimals",
+                        "value": 0
+                      },
+                      {
+                        "id": "min",
                         "value": 0
                       },
                       {
@@ -989,6 +1000,10 @@
                         "value": 0
                       },
                       {
+                        "id": "min",
+                        "value": 0
+                      },
+                      {
                         "id": "custom.cellOptions",
                         "value": {
                           "mode": "gradient",
@@ -1014,7 +1029,7 @@
         "kind": "Panel",
         "spec": {
           "id": 7,
-          "title": "Worst employees by waste (24h)",
+          "title": "Worst employees by waste (30d)",
           "description": "Per-employee aggregate over the last 24h. Sessions = distinct conversation_ids the employee opened. Inner-joined: only employees with both a cost figure and at least one scored conversation appear.",
           "links": [],
           "data": {
@@ -1032,7 +1047,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "count by (user_id) (count by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{gen_ai_token_type=\"output\",user_id=~\".+@acme.com\"}[24h])))",
+                        "expr": "count by (user_id) (count by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{gen_ai_token_type=\"output\",user_id=~\".+@acme.com\"}[30d])))",
                         "format": "table",
                         "instant": true
                       }
@@ -1052,7 +1067,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (user_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"input\",user_id=~\".+@acme.com\"}[24h]))",
+                        "expr": "sum by (user_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"input\",user_id=~\".+@acme.com\"}[30d]))",
                         "format": "table",
                         "instant": true
                       }
@@ -1072,7 +1087,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (user_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"output\",user_id=~\".+@acme.com\"}[24h]))",
+                        "expr": "sum by (user_id) (increase(gen_ai_user_tokens_total{gen_ai_token_type=\"output\",user_id=~\".+@acme.com\"}[30d]))",
                         "format": "table",
                         "instant": true
                       }
@@ -1092,7 +1107,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "sum by (user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\"}[24h])) or sum by (user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",gen_ai_token_type=\"output\"}[24h])) * 0",
+                        "expr": "sum by (user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\"}[30d])) or sum by (user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",gen_ai_token_type=\"output\"}[30d])) * 0",
                         "format": "table",
                         "instant": true
                       }
@@ -1132,7 +1147,7 @@
                         "name": "grafanacloud-prom"
                       },
                       "spec": {
-                        "expr": "(sum by (user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\"}[24h])) or sum by (user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",gen_ai_token_type=\"output\"}[24h])) * 0) * on(user_id) (1 - avg by (user_id) (conversation_eval_score{user_id=~\".+@acme.com\"}) / 100)",
+                        "expr": "(sum by (user_id) (increase(gen_ai_client_cost_usd_total{user_id=~\".+@acme.com\"}[30d])) or sum by (user_id) (max_over_time(gen_ai_user_tokens_total{user_id=~\".+@acme.com\",gen_ai_token_type=\"output\"}[30d])) * 0) * on(user_id) (1 - avg by (user_id) (conversation_eval_score{user_id=~\".+@acme.com\"}) / 100)",
                         "format": "table",
                         "instant": true
                       }
@@ -1177,7 +1192,7 @@
                       },
                       "renameByName": {
                         "user_id": "User",
-                        "Value #cost": "$ Cost (24h)",
+                        "Value #cost": "$ Cost (30d)",
                         "Value #score": "Avg Eval Score",
                         "Value #waste": "Wasted $$",
                         "Value #sessions": "Sessions",
@@ -1263,7 +1278,7 @@
                   {
                     "matcher": {
                       "id": "byName",
-                      "options": "$ Cost (24h)"
+                      "options": "$ Cost (30d)"
                     },
                     "properties": [
                       {
@@ -1275,11 +1290,14 @@
                         "value": 4
                       },
                       {
+                        "id": "min",
+                        "value": 0
+                      },
+                      {
                         "id": "custom.cellOptions",
                         "value": {
                           "mode": "gradient",
-                          "type": "gauge",
-                          "valueDisplayMode": "text"
+                          "type": "color-background"
                         }
                       },
                       {
@@ -1357,17 +1375,21 @@
                         "value": 4
                       },
                       {
+                        "id": "min",
+                        "value": 0
+                      },
+                      {
                         "id": "custom.cellOptions",
                         "value": {
                           "mode": "gradient",
-                          "type": "gauge",
-                          "valueDisplayMode": "text"
+                          "type": "color-background"
                         }
                       },
                       {
                         "id": "color",
                         "value": {
-                          "mode": "continuous-reds"
+                          "mode": "continuous-RdYlGr",
+                          "reverse": true
                         }
                       }
                     ]
@@ -1384,6 +1406,10 @@
                       },
                       {
                         "id": "decimals",
+                        "value": 0
+                      },
+                      {
+                        "id": "min",
                         "value": 0
                       },
                       {
@@ -1414,6 +1440,10 @@
                       },
                       {
                         "id": "decimals",
+                        "value": 0
+                      },
+                      {
+                        "id": "min",
                         "value": 0
                       },
                       {
@@ -1612,7 +1642,7 @@
           {
             "kind": "RowsLayoutRow",
             "spec": {
-              "title": "\ud83e\uddfe Top problem conversations (24h)",
+              "title": "\ud83e\uddfe Top problem conversations (30d)",
               "collapse": false,
               "layout": {
                 "kind": "GridLayout",
@@ -1639,7 +1669,7 @@
           {
             "kind": "RowsLayoutRow",
             "spec": {
-              "title": "\ud83e\uddd1 Worst employees (24h)",
+              "title": "\ud83e\uddd1 Worst employees (30d)",
               "collapse": false,
               "layout": {
                 "kind": "GridLayout",

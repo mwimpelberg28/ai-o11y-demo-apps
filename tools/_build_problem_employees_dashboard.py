@@ -234,14 +234,28 @@ def table_panel(pid: int, title: str, description: str,
 
     overrides = []
     for raw, disp in column_order:
-        if "Cost" in disp or "$" in disp:
+        if "Wasted" in disp:
+            # Headline metric — entire cell is a hot-red color-background.
             overrides.append({
                 "matcher": {"id": "byName", "options": disp},
                 "properties": [
                     {"id": "unit", "value": "currencyUSD"},
                     {"id": "decimals", "value": 4},
+                    {"id": "min", "value": 0},
                     {"id": "custom.cellOptions",
-                     "value": {"mode": "gradient", "type": "gauge", "valueDisplayMode": "text"}},
+                     "value": {"mode": "gradient", "type": "color-background"}},
+                    {"id": "color", "value": {"mode": "continuous-RdYlGr", "reverse": True}},
+                ],
+            })
+        elif "Cost" in disp or "$" in disp:
+            overrides.append({
+                "matcher": {"id": "byName", "options": disp},
+                "properties": [
+                    {"id": "unit", "value": "currencyUSD"},
+                    {"id": "decimals", "value": 4},
+                    {"id": "min", "value": 0},
+                    {"id": "custom.cellOptions",
+                     "value": {"mode": "gradient", "type": "color-background"}},
                     {"id": "color", "value": {"mode": "continuous-reds"}},
                 ],
             })
@@ -251,6 +265,7 @@ def table_panel(pid: int, title: str, description: str,
                 "properties": [
                     {"id": "unit", "value": "short"},
                     {"id": "decimals", "value": 0},
+                    {"id": "min", "value": 0},
                     {"id": "custom.cellOptions",
                      "value": {"mode": "gradient", "type": "gauge", "valueDisplayMode": "text"}},
                     {"id": "color", "value": {"mode": "continuous-blues"}},
@@ -469,20 +484,20 @@ _FILTER = f'user_id=~"{USER_RE}",session_id!=""'
 # cost value (real $$ for Anthropic, $0 for Ollama) — keeps Ollama
 # anomaly bursts visible in the table after the inner-join filter.
 _COST_FILLED_SESSION = (
-    f'sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{{{_FILTER}}}[24h])) '
+    f'sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{{{_FILTER}}}[30d])) '
     f'or '
-    f'sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="output"}}[24h])) * 0'
+    f'sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="output"}}[30d])) * 0'
 )
 
 elements["panel-6"] = table_panel(
     6,
-    "Top problem conversations (24h)",
+    "Top problem conversations (30d)",
     "Top SupportBot conversations by $ wasted in the last 24h. Inner-joined: only conversations that have a cost figure AND have been scored by the evaluator appear (no blank cells). Click the Conversation cell to open the trace in AI o11y.",
     queries=[
         # user_id + conversation_id are present on every query so they need
         # `shared_label_fields` handling to dedupe after joinByField.
-        ("input",  f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="input"}}[24h]))'),
-        ("output", f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="output"}}[24h]))'),
+        ("input",  f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="input"}}[30d]))'),
+        ("output", f'sum by (session_id, user_id, conversation_id) (increase(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="output"}}[30d]))'),
         ("cost",   _COST_FILLED_SESSION),
         ("score",  f'max by (session_id, user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}})'),
         # Per-session Wasted $$ = cost * (1 - score/100). Vector-multiplied
@@ -499,7 +514,7 @@ elements["panel-6"] = table_panel(
     column_order=[
         ("session_id",      "Conversation"),
         ("user_id",         "User"),
-        ("Value #cost",     "$ Cost (24h)"),
+        ("Value #cost",     "$ Cost (30d)"),
         ("Value #score",    "Eval Score"),
         ("Value #waste",    "Wasted $$"),
         ("Value #input",    "Input Tokens"),
@@ -521,19 +536,19 @@ elements["panel-6"] = table_panel(
 # Sorted by avg eval score ASC so the "least valuable AI use" employees
 # bubble to the top — they're the demo's "who's wasting the budget" story.
 _COST_FILLED_USER = (
-    f'sum by (user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[24h])) '
+    f'sum by (user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[30d])) '
     f'or '
-    f'sum by (user_id) (max_over_time(gen_ai_user_tokens_total{{user_id=~"{USER_RE}",gen_ai_token_type="output"}}[24h])) * 0'
+    f'sum by (user_id) (max_over_time(gen_ai_user_tokens_total{{user_id=~"{USER_RE}",gen_ai_token_type="output"}}[30d])) * 0'
 )
 
 elements["panel-7"] = table_panel(
     7,
-    "Worst employees by waste (24h)",
+    "Worst employees by waste (30d)",
     "Per-employee aggregate over the last 24h. Sessions = distinct conversation_ids the employee opened. Inner-joined: only employees with both a cost figure and at least one scored conversation appear.",
     queries=[
-        ("sessions", f'count by (user_id) (count by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[24h])))'),
-        ("input",    f'sum by (user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[24h]))'),
-        ("output",   f'sum by (user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[24h]))'),
+        ("sessions", f'count by (user_id) (count by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[30d])))'),
+        ("input",    f'sum by (user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[30d]))'),
+        ("output",   f'sum by (user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[30d]))'),
         ("cost",     _COST_FILLED_USER),
         ("score",    f'avg by (user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}})'),
         # Waste = cost * (1 - score/100). user_id-only vector match.
@@ -546,7 +561,7 @@ elements["panel-7"] = table_panel(
     join_mode="inner",
     column_order=[
         ("user_id",         "User"),
-        ("Value #cost",     "$ Cost (24h)"),
+        ("Value #cost",     "$ Cost (30d)"),
         ("Value #score",    "Avg Eval Score"),
         ("Value #waste",    "Wasted $$"),
         ("Value #sessions", "Sessions"),
@@ -602,10 +617,10 @@ layout = {
             row("💰 Wasted spend — how to read it", [
                 grid_item(0, 0, 24, 6, "panel-8"),
             ]),
-            row("🧾 Top problem conversations (24h)", [
+            row("🧾 Top problem conversations (30d)", [
                 grid_item(0, 0, 24, 12, "panel-6"),
             ]),
-            row("🧑 Worst employees (24h)", [
+            row("🧑 Worst employees (30d)", [
                 grid_item(0, 0, 24, 10, "panel-7"),
             ]),
         ],
