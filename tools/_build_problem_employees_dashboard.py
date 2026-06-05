@@ -40,7 +40,37 @@ def prom_query(expr: str, *, legend: str | None = None, instant: bool = False, r
 
 def stat_panel(pid: int, title: str, description: str, expr: str, *,
                unit: str = "short", decimals: int = 0,
-               color: str = "#ff6b00", text_mode: str = "value_and_name") -> dict:
+               color: str = "#ff6b00", text_mode: str = "value_and_name",
+               graph_mode: str = "area",
+               color_mode: str = "background",
+               thresholds: list[dict] | None = None,
+               threshold_color_mode: bool = False,
+               value_size: int | None = None) -> dict:
+    """A stat panel. `threshold_color_mode=True` switches the color from a
+    fixed hex to threshold-stepped (good for gauges + multi-band stats)."""
+    if thresholds is None:
+        thresholds = [
+            {"value": 0, "color": "green"},
+            {"value": 1000, "color": "orange"},
+            {"value": 10000, "color": "red"},
+        ]
+    color_field = (
+        {"mode": "thresholds"} if threshold_color_mode
+        else {"mode": "fixed", "fixedColor": color}
+    )
+    options = {
+        "colorMode": color_mode,
+        "graphMode": graph_mode,
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+        "showPercentChange": False,
+        "textMode": text_mode,
+        "wideLayout": True,
+    }
+    if value_size is not None:
+        options["text"] = {"valueSize": value_size}
     return {
         "kind": "Panel",
         "spec": {
@@ -61,27 +91,14 @@ def stat_panel(pid: int, title: str, description: str, expr: str, *,
                 "group": "stat",
                 "version": VERSION,
                 "spec": {
-                    "options": {
-                        "colorMode": "background",
-                        "graphMode": "area",
-                        "justifyMode": "center",
-                        "orientation": "auto",
-                        "percentChangeColorMode": "standard",
-                        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
-                        "showPercentChange": False,
-                        "textMode": text_mode,
-                        "wideLayout": True,
-                    },
+                    "options": options,
                     "fieldConfig": {
                         "defaults": {
                             "unit": unit,
                             "decimals": decimals,
-                            "thresholds": {"mode": "absolute", "steps": [
-                                {"value": 0, "color": "green"},
-                                {"value": 1000, "color": "orange"},
-                                {"value": 10000, "color": "red"},
-                            ]},
-                            "color": {"mode": "fixed", "fixedColor": color},
+                            "min": 0,
+                            "thresholds": {"mode": "absolute", "steps": thresholds},
+                            "color": color_field,
                         },
                         "overrides": [],
                     },
@@ -439,6 +456,88 @@ def row(title: str, items: list[dict]) -> dict:
 
 elements = {}
 
+# Row 0 — fleet-wide headline stats (the WOW row).
+# These four numbers are the demo's punchline. All 30d × 12 (annualized).
+
+# Per-user annual waste — reused for both the fleet sum (panel-9) and
+# the topk-1 worst-offender lookup (panel-10).
+_PER_USER_WASTE = (
+    f'((sum by (user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[30d])) '
+    f'or '
+    f'sum by (user_id) (max_over_time(gen_ai_user_tokens_total{{user_id=~"{USER_RE}",gen_ai_token_type="output"}}[30d])) * 0) '
+    f'* on(user_id) (1 - avg by (user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}}) / 100)'
+    f') * 12'
+)
+_FLEET_WASTE_EXPR = f'sum({_PER_USER_WASTE})'
+
+elements["panel-9"] = stat_panel(
+    9,
+    "💸 Annual AI waste, fleet-wide",
+    "Sum of (annual cost × (1 − avg eval score)) across every acme.com employee. The total dollars the company will burn this year on AI use that isn't worth it.",
+    _FLEET_WASTE_EXPR,
+    unit="currencyUSD",
+    decimals=2,
+    text_mode="value",
+    thresholds=[
+        {"value": 0,    "color": "green"},
+        {"value": 50,   "color": "yellow"},
+        {"value": 150,  "color": "orange"},
+        {"value": 500,  "color": "red"},
+        {"value": 2000, "color": "dark-red"},
+    ],
+    threshold_color_mode=True,
+    value_size=72,
+)
+
+elements["panel-10"] = stat_panel(
+    10,
+    "🥇 Worst offender",
+    "Employee burning the most $$ on bad AI use this year (cost × inefficiency).",
+    f'topk(1, {_PER_USER_WASTE})',
+    unit="currencyUSD",
+    decimals=2,
+    text_mode="value_and_name",
+    color="#a30000",
+    value_size=42,
+)
+
+elements["panel-11"] = stat_panel(
+    11,
+    "🎯 Fleet avg eval score",
+    "Mean conversation eval score across every scored acme.com chat. 100% = AI is being used well. Below 50% = many low-value chats are being routed through the AI.",
+    f'avg(conversation_eval_score{{user_id=~"{USER_RE}"}})',
+    unit="percent",
+    decimals=0,
+    text_mode="value",
+    graph_mode="none",
+    thresholds=[
+        {"value": 0,  "color": "red"},
+        {"value": 50, "color": "orange"},
+        {"value": 75, "color": "green"},
+    ],
+    threshold_color_mode=True,
+    value_size=72,
+)
+
+elements["panel-12"] = stat_panel(
+    12,
+    "🚨 Problem employees",
+    "Count of acme.com employees whose average eval score is below 50% — chronic low-value AI users worth talking to.",
+    f'count(avg by (user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}}) < 50) or vector(0)',
+    unit="short",
+    decimals=0,
+    text_mode="value",
+    graph_mode="none",
+    thresholds=[
+        {"value": 0,  "color": "green"},
+        {"value": 1,  "color": "yellow"},
+        {"value": 5,  "color": "orange"},
+        {"value": 10, "color": "red"},
+    ],
+    threshold_color_mode=True,
+    value_size=72,
+)
+
 # Row 1 stats — current top offenders
 elements["panel-1"] = stat_panel(
     1,
@@ -668,6 +767,12 @@ layout = {
     "kind": "RowsLayout",
     "spec": {
         "rows": [
+            row("💰 Fleet-wide annual impact", [
+                grid_item(0,  0,  6, 7, "panel-9"),   # Annual waste, fleet-wide
+                grid_item(6,  0,  6, 7, "panel-10"),  # Worst offender
+                grid_item(12, 0,  6, 7, "panel-11"),  # Fleet avg eval score
+                grid_item(18, 0,  6, 7, "panel-12"),  # Problem employees count
+            ]),
             row("🚨 Right now", [
                 grid_item(0, 0, 12, 5, "panel-1"),
                 grid_item(12, 0, 12, 5, "panel-2"),
@@ -707,10 +812,10 @@ dashboard = {
         "tags": ["ai-o11y-demo-apps", "anomalies", "supportbot"],
         "timeSettings": {
             "timezone": "browser",
-            "from": "now-1h",
+            "from": "now-30d",
             "to": "now",
             "autoRefresh": "30s",
-            "autoRefreshIntervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h"],
+            "autoRefreshIntervals": ["30s", "1m", "5m", "15m", "30m", "1h"],
             "hideTimepicker": False,
             "fiscalYearStartMonth": 0,
         },
