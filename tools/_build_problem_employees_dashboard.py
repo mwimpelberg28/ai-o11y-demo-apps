@@ -235,16 +235,25 @@ def table_panel(pid: int, title: str, description: str,
     overrides = []
     for raw, disp in column_order:
         if "Wasted" in disp:
-            # Headline metric — entire cell is a hot-red color-background.
+            # Headline metric. color-background with thresholds (NOT continuous)
+            # so each row reads at a glance: green = fine, red = bad — instead of
+            # the whole column going solid red because everyone's "above the min".
             overrides.append({
                 "matcher": {"id": "byName", "options": disp},
                 "properties": [
                     {"id": "unit", "value": "currencyUSD"},
-                    {"id": "decimals", "value": 4},
+                    {"id": "decimals", "value": 2},
                     {"id": "min", "value": 0},
                     {"id": "custom.cellOptions",
                      "value": {"mode": "gradient", "type": "color-background"}},
-                    {"id": "color", "value": {"mode": "continuous-RdYlGr", "reverse": True}},
+                    {"id": "color", "value": {"mode": "thresholds"}},
+                    {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                        {"value": 0,     "color": "green"},
+                        {"value": 5,     "color": "yellow"},
+                        {"value": 25,    "color": "orange"},
+                        {"value": 100,   "color": "red"},
+                        {"value": 500,   "color": "dark-red"},
+                    ]}},
                 ],
             })
         elif "Cost" in disp or "$" in disp:
@@ -252,11 +261,11 @@ def table_panel(pid: int, title: str, description: str,
                 "matcher": {"id": "byName", "options": disp},
                 "properties": [
                     {"id": "unit", "value": "currencyUSD"},
-                    {"id": "decimals", "value": 4},
+                    {"id": "decimals", "value": 2},
                     {"id": "min", "value": 0},
                     {"id": "custom.cellOptions",
                      "value": {"mode": "gradient", "type": "color-background"}},
-                    {"id": "color", "value": {"mode": "continuous-reds"}},
+                    {"id": "color", "value": {"mode": "continuous-YlOrRd"}},
                 ],
             })
         elif "Token" in disp:
@@ -479,14 +488,19 @@ elements["panel-5"] = timeseries_panel(
 # SB sessions (sess_<hex>) still show up; they're just much cheaper and
 # fall to the bottom of the cost-sorted table.
 _FILTER = f'user_id=~"{USER_RE}",session_id!=""'
-# Cost fill: gateway's record_cost skips $0, so Ollama sessions have no
-# cost series. Add `or (output_tokens * 0)` so every session has SOME
-# cost value (real $$ for Anthropic, $0 for Ollama) — keeps Ollama
-# anomaly bursts visible in the table after the inner-join filter.
+# Cost-fill + annualize. record_cost skips $0, so Ollama sessions have
+# no cost series — `or (output_tokens * 0)` ensures every session has
+# SOME cost value (real $$ for Anthropic, $0 for Ollama) so Ollama
+# bursts survive the inner-join filter. The × 12 projects the 30d window
+# up to an annual rate, which makes the numbers feel real in a demo
+# ($0.97/month → $11.64/year) without changing what data we measure.
+_ANNUALIZE = 12
 _COST_FILLED_SESSION = (
+    f'('
     f'sum by (session_id, user_id) (increase(gen_ai_client_cost_usd_total{{{_FILTER}}}[30d])) '
     f'or '
     f'sum by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{{{_FILTER},gen_ai_token_type="output"}}[30d])) * 0'
+    f') * {_ANNUALIZE}'
 )
 
 elements["panel-6"] = table_panel(
@@ -514,9 +528,9 @@ elements["panel-6"] = table_panel(
     column_order=[
         ("session_id",      "Conversation"),
         ("user_id",         "User"),
-        ("Value #cost",     "$ Cost (30d)"),
+        ("Value #cost",     "$ Cost / yr"),
         ("Value #score",    "Eval Score"),
-        ("Value #waste",    "Wasted $$"),
+        ("Value #waste",    "Wasted $$ / yr"),
         ("Value #input",    "Input Tokens"),
         ("Value #output",   "Output Tokens"),
         ("conversation_id", "conv_id"),     # hidden — feeds the data link
@@ -529,16 +543,18 @@ elements["panel-6"] = table_panel(
             "targetBlank": True,
         }],
     },
-    sort_by_display="Wasted $$",
+    sort_by_display="Wasted $$ / yr",
 )
 
 # Row 5 table — worst employees (aggregate of conversations by user_id)
 # Sorted by avg eval score ASC so the "least valuable AI use" employees
 # bubble to the top — they're the demo's "who's wasting the budget" story.
 _COST_FILLED_USER = (
+    f'('
     f'sum by (user_id) (increase(gen_ai_client_cost_usd_total{{user_id=~"{USER_RE}"}}[30d])) '
     f'or '
     f'sum by (user_id) (max_over_time(gen_ai_user_tokens_total{{user_id=~"{USER_RE}",gen_ai_token_type="output"}}[30d])) * 0'
+    f') * {_ANNUALIZE}'
 )
 
 elements["panel-7"] = table_panel(
@@ -561,14 +577,14 @@ elements["panel-7"] = table_panel(
     join_mode="inner",
     column_order=[
         ("user_id",         "User"),
-        ("Value #cost",     "$ Cost (30d)"),
+        ("Value #cost",     "$ Cost / yr"),
         ("Value #score",    "Avg Eval Score"),
-        ("Value #waste",    "Wasted $$"),
+        ("Value #waste",    "Wasted $$ / yr"),
         ("Value #sessions", "Sessions"),
         ("Value #input",    "Input Tokens"),
         ("Value #output",   "Output Tokens"),
     ],
-    sort_by_display="Wasted $$",
+    sort_by_display="Wasted $$ / yr",
     sort_desc=True,  # most-wasteful first
 )
 
@@ -580,19 +596,21 @@ elements["panel-8"] = text_panel(
     (
         "### How to read these tables\n"
         "\n"
-        "**Wasted $$** = `Cost × (1 − Eval Score / 100)`. It captures **both** "
+        "**Wasted $$ / yr** = `Cost × (1 − Eval Score / 100)`. It captures **both** "
         "axes of \"bad AI usage\" — spending money *and* not getting value for it.\n"
         "\n"
-        "- An employee who spends **$100** with an eval score of **80%** → "
+        "- Spend **$100/yr** with an eval score of **80%** → "
         "`$100 × (1 − 0.80)` = **$20 wasted**.\n"
-        "- An employee who spends **$100** with an eval score of **0%** → "
-        "`$100 × (1 − 0)` = **$100 wasted** — every dollar burned on bad AI use.\n"
-        "- An employee at score **100%** wastes **$0** no matter how much they "
-        "spend — perfect use of the AI budget.\n"
+        "- Spend **$100/yr** with an eval score of **0%** → "
+        "`$100 × (1 − 0)` = **$100 wasted** — every dollar burned.\n"
+        "- Score **100%** wastes **$0** no matter how much they spend — "
+        "perfect use of the AI budget.\n"
         "\n"
-        "Eval scores come from an Ollama-driven judge (qwen2.5:14b) running "
-        "outside the LLM gateway. Both tables show only rows with full data "
-        "— blank cells are filtered out."
+        "**Why /yr?** The query measures the last 30 days then projects to an "
+        "annual rate (× 12). At current usage patterns these are the yearly "
+        "tabs. Eval scores come from an Ollama-driven judge (qwen2.5:14b) "
+        "running outside the LLM gateway. Inner-joined — rows with blank "
+        "cells are filtered out."
     ),
 )
 
