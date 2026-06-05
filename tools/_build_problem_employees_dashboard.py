@@ -193,7 +193,8 @@ def table_panel(pid: int, title: str, description: str,
                 column_links: dict[str, list[dict]] | None = None,
                 join_mode: str = "outer",
                 cost_thresholds: list[dict] | None = None,
-                waste_thresholds: list[dict] | None = None) -> dict:
+                waste_thresholds: list[dict] | None = None,
+                good_thresholds: list[dict] | None = None) -> dict:
     """Build a v2 table panel that joins multiple instant queries on `join_field`.
 
     `queries` is a list of (refId, expr). Each query renders one Value #refId
@@ -268,6 +269,16 @@ def table_panel(pid: int, title: str, description: str,
         {"value": 25,   "color": "red"},
         {"value": 75,   "color": "dark-red"},
     ]
+    # Inverted from waste — high "Good $$" = success, so we paint greener
+    # as values rise. Low good-$$ stays neutral (gray-ish), no "warning"
+    # tint, since not using AI isn't a problem on this table.
+    _default_good = good_thresholds or [
+        {"value": 0,    "color": "text"},
+        {"value": 1,    "color": "semi-dark-green"},
+        {"value": 5,    "color": "green"},
+        {"value": 15,   "color": "dark-green"},
+        {"value": 50,   "color": "dark-green"},
+    ]
     for raw, disp in column_order:
         if "Wasted" in disp:
             overrides.append({
@@ -280,6 +291,19 @@ def table_panel(pid: int, title: str, description: str,
                      "value": {"mode": "basic", "type": "color-background"}},
                     {"id": "color", "value": {"mode": "thresholds"}},
                     {"id": "thresholds", "value": {"mode": "absolute", "steps": _default_waste}},
+                ],
+            })
+        elif "Good" in disp:
+            overrides.append({
+                "matcher": {"id": "byName", "options": disp},
+                "properties": [
+                    {"id": "unit", "value": "currencyUSD"},
+                    {"id": "decimals", "value": 2},
+                    {"id": "min", "value": 0},
+                    {"id": "custom.cellOptions",
+                     "value": {"mode": "basic", "type": "color-background"}},
+                    {"id": "color", "value": {"mode": "thresholds"}},
+                    {"id": "thresholds", "value": {"mode": "absolute", "steps": _default_good}},
                 ],
             })
         elif "Cost" in disp or "$" in disp:
@@ -733,6 +757,55 @@ elements["panel-7"] = table_panel(
 )
 
 
+# Row 6 table — AI champions (the flip-side of the coaching opps table).
+# Good $$ = cost × (score/100) — money spent that the eval judged valuable.
+# Greener cells mean more "spend you'd be happy to defend in a budget review."
+elements["panel-13"] = table_panel(
+    13,
+    "🏆 AI champions (30d)",
+    "Per-employee aggregate over the last 30d, ranked by Good $$ (cost × eval-score-fraction). High-spend AI users who are getting real value out of every dollar — the demo's positive counterweight to the coaching-opportunities table.",
+    queries=[
+        ("sessions", f'count by (user_id) (count by (session_id, user_id) (max_over_time(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[30d])))'),
+        ("input",    f'sum by (user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="input",user_id=~"{USER_RE}"}}[30d]))'),
+        ("output",   f'sum by (user_id) (increase(gen_ai_user_tokens_total{{gen_ai_token_type="output",user_id=~"{USER_RE}"}}[30d]))'),
+        ("cost",     _COST_FILLED_USER),
+        ("score",    f'avg by (user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}})'),
+        # Good $$ = cost × (score/100). Same vector match as waste, inverted.
+        ("good",     (
+            f'({_COST_FILLED_USER}) '
+            f'* on(user_id) (avg by (user_id) (conversation_eval_score{{user_id=~"{USER_RE}"}}) / 100)'
+        )),
+    ],
+    join_field="user_id",
+    join_mode="inner",
+    column_order=[
+        ("user_id",         "User"),
+        ("Value #cost",     "$ Cost"),
+        ("Value #score",    "Avg Eval Score"),
+        ("Value #good",     "Good $$"),
+        ("Value #sessions", "Sessions"),
+        ("Value #input",    "Input Tokens"),
+        ("Value #output",   "Output Tokens"),
+    ],
+    sort_by_display="Good $$",
+    sort_desc=True,  # biggest valuable-spend first
+    cost_thresholds=[
+        {"value": 0,    "color": "green"},
+        {"value": 3,    "color": "yellow"},
+        {"value": 8,    "color": "orange"},
+        {"value": 15,   "color": "red"},
+        {"value": 40,   "color": "dark-red"},
+    ],
+    good_thresholds=[
+        {"value": 0,    "color": "text"},
+        {"value": 1,    "color": "semi-dark-green"},
+        {"value": 4,    "color": "green"},
+        {"value": 10,   "color": "dark-green"},
+        {"value": 30,   "color": "dark-green"},
+    ],
+)
+
+
 # Explainer text panel that sits above both tables.
 elements["panel-8"] = text_panel(
     8,
@@ -740,23 +813,26 @@ elements["panel-8"] = text_panel(
     (
         "### How to read these tables\n"
         "\n"
-        "**Wasted $$** = `Cost × (1 − Eval Score / 100)`. It captures **both** "
-        "axes of \"bad AI usage\" — spending money *and* not getting value for it.\n"
+        "Two halves of the same coin:\n"
         "\n"
-        "- Spend **$100** with an eval score of **80%** → "
-        "`$100 × (1 − 0.80)` = **$20 wasted**.\n"
-        "- Spend **$100** with an eval score of **0%** → "
-        "`$100 × (1 − 0)` = **$100 wasted** — every dollar burned.\n"
-        "- Score **100%** wastes **$0** no matter how much they spend — "
-        "perfect use of the AI budget.\n"
+        "- **Wasted $$** = `Cost × (1 − Eval Score / 100)` — money the AI "
+        "spent that the evaluator judged low-value. Coaching opportunities.\n"
+        "- **Good $$** = `Cost × (Eval Score / 100)` — money well spent. AI "
+        "champions.\n"
+        "\n"
+        "Examples:\n"
+        "\n"
+        "- Spend **$100** at score **80%** → `$80 good`, `$20 wasted`.\n"
+        "- Spend **$100** at score **0%** → `$0 good`, `$100 wasted`.\n"
+        "- Spend **$100** at score **100%** → `$100 good`, `$0 wasted`.\n"
         "\n"
         "All $$ values are 30-day measured × 12. For **employees** that's a "
         "literal annual projection (per-user spend is an ongoing rate). For "
         "**conversations** it's a scaling factor — single-chat costs on Haiku "
         "and Sonnet are cents, so the × 12 makes the demo-relevant magnitudes "
-        "(the worst chat is ~$10 wasted, not $0.83) visible at a glance. "
-        "Eval scores come from an Ollama-driven judge (qwen2.5:14b) running "
-        "outside the LLM gateway. Inner-joined — rows with blank cells filtered."
+        "visible. Eval scores come from an Ollama-driven judge (qwen2.5:14b) "
+        "running outside the LLM gateway. Inner-joined — rows with blank "
+        "cells filtered."
     ),
 )
 
@@ -792,6 +868,9 @@ layout = {
             ]),
             row("💡 AI coaching opportunities (30d)", [
                 grid_item(0, 0, 24, 10, "panel-7"),
+            ]),
+            row("🏆 AI champions (30d)", [
+                grid_item(0, 0, 24, 10, "panel-13"),
             ]),
         ],
     },
