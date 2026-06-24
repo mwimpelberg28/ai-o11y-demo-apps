@@ -27,6 +27,8 @@ kubectl -n support-bot port-forward svc/supportbot-web 8081:8000  # http://local
 
 **Prereqs:** Kubernetes cluster (k3s, EKS, GKE, kind), `kubectl` + `helm` + `python3.10+` on PATH, an Anthropic API key, and a Grafana Cloud org with the Sigil plugin enabled.
 
+> **Default StorageClass required.** Postgres requests a PersistentVolumeClaim with no explicit `storageClassName`, so it binds to the cluster's *default* StorageClass. If your cluster has none, the `data-postgres-0` PVC stays `Pending` with *"no persistent volumes available for this claim and no storage class is set"* and Postgres never starts. Check with `kubectl get storageclass` — exactly one should be marked `(default)`. Either mark one as default (`kubectl patch storageclass <name> -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'`) or set `postgres.storage.storageClass` in your values.
+
 ---
 
 ## What you get
