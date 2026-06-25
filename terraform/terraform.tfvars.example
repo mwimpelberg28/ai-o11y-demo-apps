@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars and edit. All values have sensible defaults.
+
+region             = "us-east-1"
+cluster_name       = "ai-o11y-demo"
+kubernetes_version = "1.32"
+
+# Node group sizing for the 5 app namespaces + loadgen + Postgres.
+node_instance_types = ["t3.large"]
+node_desired_size   = 3
+node_min_size       = 2
+node_max_size       = 4

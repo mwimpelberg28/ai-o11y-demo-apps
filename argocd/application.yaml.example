@@ -1,0 +1,60 @@
+# Committed reference ONLY — shows the Application shape without secrets.
+# Do NOT apply this directly; the placeholder values won't work and the apps
+# won't start. Generate the real, secret-bearing manifest from your .env:
+#
+#     ./tools/generate-argocd-app.sh
+#     kubectl apply -f argocd/application.generated.yaml
+#
+# See argocd/README.md for the full flow.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ai-o11y-demo-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/stephenwagner-grafana/ai-o11y-demo-apps
+    targetRevision: main
+    path: helm
+    helm:
+      valuesObject:
+        global:
+          anthropic:
+            apiKey: "REPLACE_WITH_sk-ant-..."
+          sigil:
+            endpoint: "REPLACE_WITH_https://sigil-...grafana.net"
+            protocol: "http"
+            authMode: "basic"
+            tenantId: "REPLACE_WITH_NUMERIC_TENANT_ID"
+            token: "REPLACE_WITH_glc_..."
+          otel:
+            endpoint: "REPLACE_WITH_OTLP_ENDPOINT"
+            # Authorization=Basic base64(instanceId:otlpToken)
+            headers: "REPLACE_WITH_OTLP_HEADERS"
+          caps:
+            anthropic:
+              usdPerDay: 30
+        # REQUIRED under Argo CD: the chart's lookup-based password persistence
+        # returns empty during `helm template`, so set this explicitly or
+        # postgres-0 auth breaks on every sync.
+        postgres:
+          database: "aio11y"
+          user: "aio11y"
+          password: "REPLACE_WITH_STABLE_PASSWORD"
+        loadgen:
+          ncTotalUsers: 200
+          ncAiAdoptionRate: 0.25
+          sbTotalUsers: 30
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true

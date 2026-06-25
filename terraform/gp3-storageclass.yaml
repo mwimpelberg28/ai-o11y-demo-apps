@@ -1,0 +1,23 @@
+# Marks gp3 as the cluster's DEFAULT StorageClass so the chart's Postgres PVC
+# (which leaves storageClassName empty) binds without a manual kubectl patch.
+# EKS ships a gp2 StorageClass that is NOT marked default, so data-postgres-0
+# would otherwise stay Pending.
+#
+# Requires the aws-ebs-csi-driver addon — the Terraform in this directory
+# installs it along with its IAM role. Apply after the cluster is up:
+#
+#   aws eks update-kubeconfig --region <region> --name <cluster_name>
+#   kubectl apply -f gp3-storageclass.yaml
+#
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+parameters:
+  type: gp3
+  encrypted: "true"

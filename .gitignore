@@ -38,6 +38,17 @@ Chart.lock
 # K6
 k6-results/
 
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+terraform.tfvars
+crash.log
+
+# Argo CD — generated Application carries secrets (see argocd/README.md)
+argocd/application.generated.yaml
+
 # IDEs
 .vscode/
 .idea/
