@@ -32,8 +32,8 @@ ok()   { printf '  [OK] %s\n' "$*"; }
 die()  { printf '  [ERROR] %s\n' "$*" >&2; exit 1; }
 
 # ── GitOps source (override via env before running if you use a fork) ─────────
-ARGOCD_REPO_URL="${ARGOCD_REPO_URL:-https://github.com/stephenwagner-grafana/ai-o11y-demo-apps}"
-ARGOCD_TARGET_REVISION="${ARGOCD_TARGET_REVISION:-main}"
+ARGOCD_REPO_URL="${ARGOCD_REPO_URL:-https://github.com/mwimpelberg28/ai-o11y-demo-apps}"
+ARGOCD_TARGET_REVISION="${ARGOCD_TARGET_REVISION:-feat/eks-terraform-argocd}"
 ARGOCD_PATH="${ARGOCD_PATH:-helm}"
 ARGOCD_DEST_SERVER="${ARGOCD_DEST_SERVER:-https://kubernetes.default.svc}"
 ARGOCD_APP_NAMESPACE="${ARGOCD_APP_NAMESPACE:-argocd}"
