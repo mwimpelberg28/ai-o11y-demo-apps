@@ -46,10 +46,17 @@ Helm values — see the root README prereqs.)
 
 ## Then install the apps
 
-```bash
-cd ..
-./tools/install.sh && ./tools/verify.sh
-```
+Two paths:
+
+- **GitOps (Argo CD)** — recommended with `enable_argocd = true`. Follow
+  [`argocd/README.md`](../argocd/README.md) for the full flow (generate the
+  Application from `.env`, sync, verify, port-forward the UIs).
+- **Imperative (helm)** — skip Argo and install directly:
+
+  ```bash
+  cd ..
+  ./tools/install.sh && ./tools/verify.sh
+  ```
 
 ## Teardown
 
